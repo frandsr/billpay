@@ -95,6 +95,14 @@ enum ApprovalStepStatus {
   REJECTED
 }
 
+/// Cadence of a `RecurringBill`. Deliberately small: three cadences cover every
+/// AP subscription we seed, and a fourth is an additive enum member.
+enum RecurringFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
 enum ActivityType {
   CREATED
   UPDATED
@@ -122,10 +130,11 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  createdBills   Bill[]                @relation("BillCreatedBy")
+  createdBills   Bill[]               @relation("BillCreatedBy")
   approvalSteps  ApprovalStep[]
   policySteps    ApprovalPolicyStep[]
   activities     Activity[]
+  recurringBills RecurringBill[]      @relation("RecurringBillCreatedBy")
 
   @@index([role])
 }
@@ -149,9 +158,9 @@ model Vendor {
   country      String  @default("US")
 
   // Payment details — DEMO ONLY, never store real bank credentials here.
-  bankName      String?
-  accountLast4  String?
-  routingLast4  String?
+  bankName     String?
+  accountLast4 String?
+  routingLast4 String?
 
   defaultPaymentTerms PaymentTerms @default(NET_30)
   defaultGlAccountId  String?
@@ -164,7 +173,8 @@ model Vendor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bills Bill[]
+  bills          Bill[]
+  recurringBills RecurringBill[]
 
   @@unique([name])
   @@index([status])
@@ -181,8 +191,11 @@ model GlAccount {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lineItems      LineItem[]
-  defaultForVendors Vendor[]
+  lineItems              LineItem[]
+  defaultForVendors      Vendor[]
+  lineItemSplits         LineItemSplit[]
+  allocationTemplateRows AllocationTemplateSplit[]
+  recurringLineItems     RecurringBillLineItem[]
 
   @@index([active])
 }
@@ -192,10 +205,10 @@ model GlAccount {
 // ---------------------------------------------------------------------------
 
 model Bill {
-  id         String       @id @default(cuid())
+  id         String @id @default(cuid())
   billNumber String
   vendorId   String
-  vendor     Vendor       @relation(fields: [vendorId], references: [id])
+  vendor     Vendor @relation(fields: [vendorId], references: [id])
 
   issueDate    DateTime
   dueDate      DateTime
@@ -218,22 +231,30 @@ model Bill {
   createdById String
   createdBy   User   @relation("BillCreatedBy", fields: [createdById], references: [id])
 
+  /// Set when this bill was generated from a `RecurringBill` template. NULL on
+  /// every manually created or ingested bill, which is what keeps the recurring
+  /// feature a purely additive migration (ADR 0005).
+  recurringBillId String?
+  recurringBill   RecurringBill? @relation(fields: [recurringBillId], references: [id])
+
   submittedAt DateTime?
   approvedAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lineItems     LineItem[]
-  payments      Payment[]
-  approvalSteps ApprovalStep[]
-  activities    Activity[]
+  lineItems      LineItem[]
+  payments       Payment[]
+  approvalSteps  ApprovalStep[]
+  activities     Activity[]
+  ocrExtractions OcrExtraction[]
 
   @@unique([vendorId, billNumber])
   @@index([status])
   @@index([dueDate])
   @@index([vendorId])
   @@index([status, dueDate])
+  @@index([recurringBillId])
 }
 
 model LineItem {
@@ -261,8 +282,189 @@ model LineItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Zero splits = the line is coded directly by its own `glAccountId`.
+  /// One or more splits = THE SPLITS carry the coding and Σ(splits) must equal
+  /// `amountCents` (see GLOSSARY: split).
+  splits LineItemSplit[]
+
   @@index([billId])
   @@index([glAccountId])
+}
+
+// ---------------------------------------------------------------------------
+// Splits and allocation templates
+//
+// GLOSSARY: a SPLIT is the distribution of ONE line across several GL
+// accounts/dimensions; the sum of splits equals the line amount. An ALLOCATION
+// TEMPLATE is a saved, named split pattern, reusable on future lines. They are
+// deliberately separate tables — an instance is not a template.
+// ---------------------------------------------------------------------------
+
+model LineItemSplit {
+  id         String   @id @default(cuid())
+  lineItemId String
+  lineItem   LineItem @relation(fields: [lineItemId], references: [id], onDelete: Cascade)
+
+  /// A split always carries coding — that is the point of splitting.
+  glAccountId String
+  glAccount   GlAccount @relation(fields: [glAccountId], references: [id])
+
+  /// Free-form dimension, same meaning as `LineItem.department`.
+  department String?
+
+  /// Integer minor units. INVARIANT: Σ(splits of a line) == LineItem.amountCents.
+  amountCents Int
+
+  /// Optional percentage, stored as BASIS POINTS (1% = 100, 100% = 10000) so a
+  /// percentage split stays integer-exact and never reintroduces floats. NULL
+  /// means the split was entered as a fixed amount.
+  percentBasisPoints Int?
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lineItemId, sortOrder])
+  @@index([glAccountId])
+}
+
+/// A saved, named split pattern (GLOSSARY: allocation template). Percentage
+/// only — an amount-based template would not survive being applied to a line of
+/// a different size.
+model AllocationTemplate {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  splits AllocationTemplateSplit[]
+
+  @@index([active])
+}
+
+model AllocationTemplateSplit {
+  id         String             @id @default(cuid())
+  templateId String
+  template   AllocationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  glAccountId String
+  glAccount   GlAccount @relation(fields: [glAccountId], references: [id])
+
+  department String?
+
+  /// Basis points (1% = 100). Σ over a template should be 10000.
+  percentBasisPoints Int
+
+  sortOrder Int @default(0)
+
+  @@unique([templateId, sortOrder])
+  @@index([glAccountId])
+}
+
+// ---------------------------------------------------------------------------
+// Recurring bills — a GENERATOR, not a bill
+//
+// A recurring bill produces DRAFT bills on a cadence. It has its own line
+// template rows so a generated draft arrives already coded, and generated bills
+// point back at it through `Bill.recurringBillId`.
+// ---------------------------------------------------------------------------
+
+model RecurringBill {
+  id       String @id @default(cuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  /// Human label for the schedule, e.g. "WeWork — monthly membership".
+  name String
+
+  /// Authoritative amount of each generated bill, in minor units of `currency`.
+  /// Mirrors `Bill.totalCents` (ADR 0004): the template's lines are coding
+  /// detail, this figure is the amount owed.
+  amountCents  Int
+  currency     String       @default("USD")
+  paymentTerms PaymentTerms @default(NET_30)
+  memo         String?
+
+  frequency   RecurringFrequency @default(MONTHLY)
+  /// Next UTC date this template owes a bill. Advanced by `nextOccurrence()`
+  /// after each generation.
+  nextRunDate DateTime
+  /// Preferred day of month (1–31), clamped to the month length. NULL keeps the
+  /// day implied by `nextRunDate`.
+  dayOfMonth  Int?
+
+  active Boolean @default(true)
+
+  createdById String
+  createdBy   User   @relation("RecurringBillCreatedBy", fields: [createdById], references: [id])
+
+  lastGeneratedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems      RecurringBillLineItem[]
+  generatedBills Bill[]
+
+  @@index([active, nextRunDate])
+  @@index([vendorId])
+  @@index([createdById])
+}
+
+model RecurringBillLineItem {
+  id              String        @id @default(cuid())
+  recurringBillId String
+  recurringBill   RecurringBill @relation(fields: [recurringBillId], references: [id], onDelete: Cascade)
+
+  description    String
+  quantity       Int    @default(1)
+  unitPriceCents Int
+  amountCents    Int
+
+  glAccountId String?
+  glAccount   GlAccount? @relation(fields: [glAccountId], references: [id])
+
+  department String?
+
+  lineType  LineType @default(EXPENSE)
+  sortOrder Int      @default(0)
+
+  @@index([recurringBillId, sortOrder])
+  @@index([glAccountId])
+}
+
+// ---------------------------------------------------------------------------
+// OCR extraction — an auditable RUN, not a mutation of the bill
+// ---------------------------------------------------------------------------
+
+/// One OCR run against a bill's invoice document. Stored as a sibling row
+/// rather than columns on `Bill` so a re-run is a new record the reviewer can
+/// compare against, and so pipeline metadata never leaks into the payable
+/// record. The relation is 1:N on purpose: extractions accumulate.
+model OcrExtraction {
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  /// The provider's raw response, kept verbatim so a review can always be
+  /// re-derived from the source rather than from our interpretation of it.
+  rawResult Json
+
+  extractedAt DateTime @default(now())
+  /// Extraction provider, e.g. "demo-ocr", "textract".
+  provider    String
+
+  /// Overall confidence in BASIS POINTS (0–10000), NULL when the provider does
+  /// not report one. Integer, for the same reason money is integer.
+  confidenceBasisPoints Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([billId, extractedAt])
 }
 
 // ---------------------------------------------------------------------------
