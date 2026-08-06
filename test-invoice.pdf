@@ -1,0 +1,112 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 3299 >>
+stream
+q 0.97 g 0 664 612 128 re f Q
+0 g
+BT /F2 18 Tf 1 0 0 1 56 732 Tm (Copperline Facilities Group) Tj ET
+0.35 g
+BT /F1 9 Tf 1 0 0 1 56 714 Tm (4180 Bayshore Boulevard, Suite 210) Tj ET
+BT /F1 9 Tf 1 0 0 1 56 702 Tm (Oakland, CA 94607) Tj ET
+BT /F1 9 Tf 1 0 0 1 56 690 Tm (billing@copperlinefacilities.example) Tj ET
+BT /F1 9 Tf 1 0 0 1 56 678 Tm (\(510\) 555-0148) Tj ET
+0 g
+BT /F2 22 Tf 1 0 0 1 471.3 732 Tm (INVOICE) Tj ET
+0.35 g
+BT /F1 10 Tf 1 0 0 1 486 712 Tm (CFG-2026-04871) Tj ET
+0.45 g
+BT /F2 8 Tf 1 0 0 1 56 620 Tm (BILL TO) Tj ET
+BT /F2 8 Tf 1 0 0 1 490 620 Tm (INVOICE DETAILS) Tj ET
+0 g
+BT /F2 10 Tf 1 0 0 1 56 604 Tm (Northwind Labs, Inc.) Tj ET
+BT /F1 9 Tf 1 0 0 1 466 604 Tm (Issued  Jul 14, 2026) Tj ET
+0.35 g
+BT /F1 9 Tf 1 0 0 1 56 591 Tm (1200 Harrison Street, Suite 400) Tj ET
+BT /F1 9 Tf 1 0 0 1 497.5 591 Tm (Terms  Net 30) Tj ET
+BT /F1 9 Tf 1 0 0 1 56 578 Tm (San Francisco, CA 94103) Tj ET
+BT /F1 9 Tf 1 0 0 1 479.5 578 Tm (Due  Aug 13, 2026) Tj ET
+BT /F1 9 Tf 1 0 0 1 56 565 Tm (ap@northwind.example) Tj ET
+BT /F1 9 Tf 1 0 0 1 475 565 Tm (Tax ID  94-3827104) Tj ET
+BT /F1 9 Tf 1 0 0 1 394 552 Tm (Service period  Jul 1 - Jul 31, 2026) Tj ET
+q 0.93 g 48 502 516 22 re f Q
+0.25 g
+BT /F2 8 Tf 1 0 0 1 56 508 Tm (DESCRIPTION) Tj ET
+BT /F2 8 Tf 1 0 0 1 386.8 508 Tm (QTY) Tj ET
+BT /F2 8 Tf 1 0 0 1 436 508 Tm (UNIT PRICE) Tj ET
+BT /F2 8 Tf 1 0 0 1 529.6 508 Tm (AMOUNT) Tj ET
+0 g
+BT /F1 10 Tf 1 0 0 1 56 484 Tm (Janitorial service - Suite 400, July 2026) Tj ET
+BT /F1 10 Tf 1 0 0 1 395 484 Tm (1) Tj ET
+BT /F1 10 Tf 1 0 0 1 435 484 Tm ($2,850.00) Tj ET
+BT /F1 10 Tf 1 0 0 1 511 484 Tm ($2,850.00) Tj ET
+q 0.88 G 0.4 w 56 474 m 556 474 l S Q
+0 g
+BT /F1 10 Tf 1 0 0 1 56 460 Tm (HVAC filter replacement - quarterly programme) Tj ET
+BT /F1 10 Tf 1 0 0 1 390 460 Tm (12) Tj ET
+BT /F1 10 Tf 1 0 0 1 450 460 Tm ($46.50) Tj ET
+BT /F1 10 Tf 1 0 0 1 521 460 Tm ($558.00) Tj ET
+q 0.88 G 0.4 w 56 450 m 556 450 l S Q
+0 g
+BT /F1 10 Tf 1 0 0 1 56 436 Tm (After-hours plumbing call-out - 2nd floor) Tj ET
+BT /F1 10 Tf 1 0 0 1 395 436 Tm (4) Tj ET
+BT /F1 10 Tf 1 0 0 1 445 436 Tm ($165.00) Tj ET
+BT /F1 10 Tf 1 0 0 1 521 436 Tm ($660.00) Tj ET
+q 0.88 G 0.4 w 56 426 m 556 426 l S Q
+0 g
+BT /F1 10 Tf 1 0 0 1 56 412 Tm (Restroom consumables restock) Tj ET
+BT /F1 10 Tf 1 0 0 1 395 412 Tm (6) Tj ET
+BT /F1 10 Tf 1 0 0 1 450 412 Tm ($78.25) Tj ET
+BT /F1 10 Tf 1 0 0 1 521 412 Tm ($469.50) Tj ET
+q 0.88 G 0.4 w 56 402 m 556 402 l S Q
+q 0.6 G 0.8 w 440 396 m 556 396 l S Q
+0.4 g
+BT /F1 9 Tf 1 0 0 1 464 380 Tm (Subtotal) Tj ET
+0 g
+BT /F1 10 Tf 1 0 0 1 511 380 Tm ($4,537.50) Tj ET
+0.4 g
+BT /F1 9 Tf 1 0 0 1 419 362 Tm (Sales tax \(8.625%\)) Tj ET
+0 g
+BT /F1 10 Tf 1 0 0 1 521 362 Tm ($391.36) Tj ET
+0.4 g
+BT /F1 9 Tf 1 0 0 1 365 344 Tm (Fuel & environmental surcharge) Tj ET
+0 g
+BT /F1 10 Tf 1 0 0 1 526 344 Tm ($68.06) Tj ET
+q 0.93 g 390 312 174 26 re f Q
+0 g
+BT /F2 11 Tf 1 0 0 1 415.55 320 Tm (Total due) Tj ET
+BT /F2 13 Tf 1 0 0 1 491.65 320 Tm ($4,996.92) Tj ET
+0.45 g
+BT /F1 8 Tf 1 0 0 1 56 116 Tm (Payable Net 30. Remit to First Cascade Bank - account ending 4417, routing ending 0021.) Tj ET
+BT /F1 8 Tf 1 0 0 1 56 104 Tm (Please quote invoice CFG-2026-04871 with your remittance advice.) Tj ET
+BT /F1 8 Tf 1 0 0 1 56 80 Tm (Test fixture generated for the Bill Pay demo. Not a real invoice.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000251 00000 n 
+0000003602 00000 n 
+0000003672 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+3747
+%%EOF

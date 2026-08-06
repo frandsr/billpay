@@ -19,7 +19,8 @@
     "db:reset": "prisma migrate reset --force",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "invoices:generate": "tsx scripts/generate-invoices.ts"
+    "invoices:generate": "tsx scripts/generate-invoices.ts",
+    "invoice:test": "tsx scripts/generate-test-invoice.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
