@@ -210,7 +210,13 @@ function LineRow({
   templates: AllocationTemplateOption[];
   departments: string[];
 }) {
-  const [mode, setMode] = useState<"view" | "edit" | "split">("view");
+  // Editing the line and splitting it are INDEPENDENT, not three exclusive
+  // modes. They used to be one `view | edit | split` switch, which hid the
+  // split affordance from the one person most likely to want it: whoever is
+  // already editing the line's coding. Splits are a headline feature — the
+  // entry point has to be reachable from wherever the user already is.
+  const [editing, setEditing] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const isSplit = line.splits.length > 0;
@@ -226,39 +232,59 @@ function LineRow({
     });
   }
 
+  const splitButton = editable ? (
+    <SplitButton
+      open={splitting}
+      isSplit={isSplit}
+      onClick={() => setSplitting((current) => !current)}
+    />
+  ) : null;
+
   return (
     <li className="py-3 first:pt-0 last:pb-0">
-      {mode === "edit" ? (
-        <LineForm
-          currency={currency}
-          glAccounts={glAccounts}
-          departments={departments}
-          initial={{
-            description: line.description,
-            quantity: line.quantity,
-            unitPriceAmount: centsToText(line.unitPriceCents, currency),
-            glAccountId: line.glAccountId,
-            department: line.department,
-            lineType: line.lineType === "ITEM" ? "ITEM" : "EXPENSE",
-          }}
-          submitLabel="Save line"
-          note={
-            isSplit
-              ? "This line is split. Changing the amount re-spreads percentage splits automatically; fixed-amount splits have to be rebalanced by hand."
-              : undefined
-          }
-          onCancel={() => setMode("view")}
-          onSubmit={async (input) => {
-            const result = await updateLineItem(line.id, input);
-            if (result.ok) {
-              toast.success("Line item updated");
-              setMode("view");
-            }
-            return result;
-          }}
-        />
-      ) : (
-        <div className="space-y-2">
+      <div className="space-y-2">
+        {editing ? (
+          <div className="space-y-2">
+            <LineForm
+              currency={currency}
+              glAccounts={glAccounts}
+              departments={departments}
+              initial={{
+                description: line.description,
+                quantity: line.quantity,
+                unitPriceAmount: centsToText(line.unitPriceCents, currency),
+                glAccountId: line.glAccountId,
+                department: line.department,
+                lineType: line.lineType === "ITEM" ? "ITEM" : "EXPENSE",
+              }}
+              submitLabel="Save line"
+              note={
+                isSplit
+                  ? "This line is split. Changing the amount re-spreads percentage splits automatically; fixed-amount splits have to be rebalanced by hand."
+                  : undefined
+              }
+              onCancel={() => setEditing(false)}
+              onSubmit={async (input) => {
+                const result = await updateLineItem(line.id, input);
+                if (result.ok) {
+                  toast.success("Line item updated");
+                  setEditing(false);
+                }
+                return result;
+              }}
+            />
+            {/* The same entry point, offered where someone editing the coding
+                will actually look for it. */}
+            {splitButton ? (
+              <div className="flex items-center justify-end gap-2">
+                <span className="text-muted-foreground text-xs">
+                  Coding this line to more than one account?
+                </span>
+                {splitButton}
+              </div>
+            ) : null}
+          </div>
+        ) : (
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -274,7 +300,8 @@ function LineRow({
               <Coding
                 line={line}
                 currency={currency}
-                onExpand={() => setMode("split")}
+                editable={editable}
+                onExpand={() => setSplitting(true)}
               />
             </div>
 
@@ -283,27 +310,16 @@ function LineRow({
                 {formatCents(line.amountCents, { currency })}
               </p>
               {editable ? (
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-1">
+                  {splitButton}
                   <Button
                     variant="ghost"
                     size="icon-xs"
                     title="Edit this line"
                     aria-label="Edit this line"
-                    onClick={() => setMode("edit")}
+                    onClick={() => setEditing(true)}
                   >
                     <Pencil />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    title={isSplit ? "Edit the split" : "Split this line"}
-                    aria-label={isSplit ? "Edit the split" : "Split this line"}
-                    onClick={() =>
-                      setMode((current) => (current === "split" ? "view" : "split"))
-                    }
-                    className={cn(mode === "split" && "bg-muted")}
-                  >
-                    {mode === "split" ? <ChevronDown /> : <Scale />}
                   </Button>
                   <Button
                     variant="ghost"
@@ -319,20 +335,54 @@ function LineRow({
               ) : null}
             </div>
           </div>
+        )}
 
-          {mode === "split" ? (
-            <LineItemSplits
-              line={line}
-              glAccounts={glAccounts}
-              templates={templates}
-              departments={departments}
-              currency={currency}
-              onClose={() => setMode("view")}
-            />
-          ) : null}
-        </div>
-      )}
+        {splitting ? (
+          <LineItemSplits
+            line={line}
+            glAccounts={glAccounts}
+            templates={templates}
+            departments={departments}
+            currency={currency}
+            onClose={() => setSplitting(false)}
+          />
+        ) : null}
+      </div>
     </li>
+  );
+}
+
+/**
+ * The way into the splits editor.
+ *
+ * Deliberately labelled rather than icon-only: splits are one of the features
+ * this product is judged on, and an unlabelled scale icon reads as decoration.
+ * Two people in a row failed to find it when it was an icon.
+ */
+function SplitButton({
+  open,
+  isSplit,
+  onClick,
+}: {
+  open: boolean;
+  isSplit: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={open ? "secondary" : "outline"}
+      size="xs"
+      onClick={onClick}
+      title={
+        isSplit
+          ? "Edit how this line is distributed across GL accounts"
+          : "Distribute this line across several GL accounts"
+      }
+    >
+      {open ? <ChevronDown /> : <Scale />}
+      {open ? "Close split" : isSplit ? "Edit split" : "Split line"}
+    </Button>
   );
 }
 
@@ -343,10 +393,12 @@ function LineRow({
 function Coding({
   line,
   currency,
+  editable,
   onExpand,
 }: {
   line: BillDetailLineItem;
   currency: string;
+  editable: boolean;
   onExpand: () => void;
 }) {
   if (line.splits.length === 0) {
@@ -382,9 +434,16 @@ function Coding({
       onClick={onExpand}
       className="hover:bg-muted/60 -mx-1 flex w-full flex-col gap-1 rounded-md px-1 py-0.5 text-left transition-colors"
     >
+      {/* Says outright that the splits — not the line's own GL account — carry
+          the coding, and that clicking opens them. */}
       <span className="text-muted-foreground flex items-center gap-1 text-xs">
         <Scale className="size-3" />
-        Split across {line.splits.length} GL accounts
+        Coded by {line.splits.length} splits, not a single account
+        {editable ? (
+          <span className="text-primary underline decoration-dotted underline-offset-2">
+            edit
+          </span>
+        ) : null}
       </span>
       <span className="flex flex-wrap gap-1.5">
         {line.splits.map((split) => {
