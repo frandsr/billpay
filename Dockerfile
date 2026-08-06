@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # ---------------------------------------------------------------------------
 # Bill Pay — multi-stage image.
 #
@@ -10,6 +8,14 @@
 #              can migrate and seed itself on start
 #   builder    prisma generate + next build (standalone output)
 #   runner     slim final image: standalone server + migration/seed toolchain
+#
+# PORTABILITY: this Dockerfile uses only classic, universally supported
+# instructions — no `# syntax=` frontend directive and no
+# `RUN --mount=type=cache`. Those are BuildKit extensions, and hosted builders
+# reject or mis-handle them (Railway's Metal builder demands a provider-specific
+# `cacheKey` prefix on every cache mount id, which would make the file build
+# there and nowhere else). The trade is a slower cold build in exchange for one
+# Dockerfile that builds identically on a laptop, in CI and on any platform.
 # ---------------------------------------------------------------------------
 
 FROM node:22-alpine AS base
@@ -17,20 +23,21 @@ FROM node:22-alpine AS base
 RUN apk add --no-cache openssl libc6-compat
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+# Pin the store inside the image instead of mounting a cache at it. Each stage
+# still gets pnpm's hard-linked store; it simply is not shared between builds.
+ENV PNPM_STORE_DIR=/pnpm/store
 RUN corepack enable && corepack prepare pnpm@10.19.0 --activate
 WORKDIR /app
 
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 
 FROM base AS prod-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod
 # Generate the Prisma client INTO the runtime tree, at build time and as root.
 # The container runs as an unprivileged user against a read-only node_modules,
 # so it must never need to generate the client at start-up.
