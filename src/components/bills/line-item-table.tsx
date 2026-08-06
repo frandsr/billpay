@@ -19,8 +19,10 @@ import {
   Check,
   ChevronDown,
   ListPlus,
+  Package,
   Pencil,
   Plus,
+  Receipt,
   Scale,
   Trash2,
   X,
@@ -30,6 +32,7 @@ import type { GlAccount } from "@prisma/client";
 
 import { LineItemSplits } from "@/components/bills/line-item-splits";
 import { EmptyState } from "@/components/common/empty-state";
+import { LineTypeBadge } from "@/components/common/line-type-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -43,6 +46,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BILL_STATUS_META } from "@/lib/bill-status";
+import {
+  LINE_TYPES,
+  LINE_TYPE_HINT,
+  LINE_TYPE_META,
+  normaliseLineType,
+  summariseLineTypes,
+  type LineType,
+} from "@/lib/line-type";
 import { formatCents, lineAmountCents, parseAmountToCents, sumCents } from "@/lib/money";
 import { basisPointsOf, formatBasisPoints } from "@/lib/splits";
 import { cn } from "@/lib/utils";
@@ -64,9 +75,10 @@ export interface LineItemTableProps {
 /** Radix Select cannot hold an empty string, so "uncoded" needs a sentinel. */
 const NO_GL_ACCOUNT = "__none__";
 
-const LINE_TYPE_LABELS: Record<string, string> = {
-  EXPENSE: "Expense",
-  ITEM: "Item",
+/** A second, non-colour cue for the axis — colour alone is not a label. */
+const LINE_TYPE_ICONS: Record<LineType, typeof Receipt> = {
+  EXPENSE: Receipt,
+  ITEM: Package,
 };
 
 export function LineItemTable({
@@ -81,6 +93,10 @@ export function LineItemTable({
   const lines = bill.lineItems;
 
   const linesTotalCents = sumCents(lines.map((line) => line.amountCents));
+  // Null unless the bill genuinely mixes the two types — see
+  // `summariseLineTypes`. A bill of four expense lines already says so on every
+  // row, so repeating it here would be clutter, not information.
+  const lineTypeSummary = summariseLineTypes(lines);
   // Signed the way an accountant reads it: positive means the coding is short
   // of what is owed.
   const differenceCents = bill.totalCents - linesTotalCents;
@@ -102,11 +118,12 @@ export function LineItemTable({
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium">Line items</p>
             <span className="text-muted-foreground text-xs">
               {lines.length} {lines.length === 1 ? "line" : "lines"} coding{" "}
               {formatCents(bill.totalCents, { currency })}
+              {lineTypeSummary ? ` · ${lineTypeSummary}` : ""}
             </span>
           </div>
           {editable ? (
@@ -255,7 +272,7 @@ function LineRow({
                 unitPriceAmount: centsToText(line.unitPriceCents, currency),
                 glAccountId: line.glAccountId,
                 department: line.department,
-                lineType: line.lineType === "ITEM" ? "ITEM" : "EXPENSE",
+                lineType: normaliseLineType(line.lineType),
               }}
               submitLabel="Save line"
               note={
@@ -289,9 +306,7 @@ function LineRow({
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-medium">{line.description}</p>
-                <Badge variant="secondary" className="font-normal">
-                  {LINE_TYPE_LABELS[line.lineType] ?? line.lineType}
-                </Badge>
+                <LineTypeBadge lineType={line.lineType} />
               </div>
               <p className="text-muted-foreground text-xs tabular-nums">
                 {line.quantity} ×{" "}
@@ -495,7 +510,7 @@ function LineForm({
   const [error, setError] = useState<string | null>(null);
 
   const [description, setDescription] = useState(initial.description);
-  const [lineType, setLineType] = useState<"EXPENSE" | "ITEM">(initial.lineType);
+  const [lineType, setLineType] = useState<LineType>(initial.lineType);
   const [quantity, setQuantity] = useState(String(initial.quantity));
   const [unitPriceAmount, setUnitPriceAmount] = useState(initial.unitPriceAmount);
   const [glAccountId, setGlAccountId] = useState(
@@ -547,17 +562,38 @@ function LineForm({
           <Label htmlFor="line-type">Type</Label>
           <Select
             value={lineType}
-            onValueChange={(value) => setLineType(value as "EXPENSE" | "ITEM")}
+            onValueChange={(value) => setLineType(normaliseLineType(value))}
           >
-            <SelectTrigger id="line-type" className="w-full">
+            <SelectTrigger
+              id="line-type"
+              className="w-full"
+              aria-describedby="line-type-hint"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="EXPENSE">Expense</SelectItem>
-              <SelectItem value="ITEM">Item</SelectItem>
+              {LINE_TYPES.map((type) => {
+                const Icon = LINE_TYPE_ICONS[type];
+                return (
+                  <SelectItem key={type} value={type}>
+                    <Icon className="size-3.5" />
+                    {LINE_TYPE_META[type].label}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
+
+        {/* Full width so the one sentence that explains the axis reads as a
+            sentence instead of wrapping four times inside a narrow column.
+            Anyone meeting `Expense | Item` for the first time meets it here. */}
+        <p
+          id="line-type-hint"
+          className="text-muted-foreground text-xs sm:col-span-6"
+        >
+          {LINE_TYPE_HINT}
+        </p>
 
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="line-quantity">Quantity</Label>

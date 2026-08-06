@@ -6,6 +6,8 @@
  * so the documents and the rows can never disagree.
  */
 
+import type { LineType } from "@prisma/client";
+
 import { distributeByBasisPoints } from "../src/lib/splits";
 import {
   BILLS,
@@ -78,6 +80,8 @@ export interface ComputedLine {
   amountCents: number;
   glCode: string | null;
   department: string | null;
+  /** `undefined` means the line did not state a type; the writer defaults it. */
+  lineType: LineType | undefined;
   sortOrder: number;
 }
 
@@ -93,7 +97,8 @@ export interface ComputedBill {
 
 export function computeBill(spec: SeedBill): ComputedBill {
   const lines: ComputedLine[] = spec.lines.map((line, index) => {
-    const [description, quantity, unitPriceDollars, glCode, department] = line;
+    const [description, quantity, unitPriceDollars, glCode, department, lineType] =
+      line;
     const unitPriceCents = toCents(unitPriceDollars);
     return {
       description,
@@ -102,6 +107,7 @@ export function computeBill(spec: SeedBill): ComputedBill {
       amountCents: Math.round(quantity * unitPriceCents),
       glCode,
       department,
+      lineType,
       sortOrder: index,
     };
   });
@@ -219,7 +225,8 @@ export function computeRecurringBill(
   spec: SeedRecurringBill,
 ): ComputedRecurringBill {
   const lines: ComputedLine[] = spec.lines.map((line, index) => {
-    const [description, quantity, unitPriceDollars, glCode, department] = line;
+    const [description, quantity, unitPriceDollars, glCode, department, lineType] =
+      line;
     const unitPriceCents = toCents(unitPriceDollars);
     return {
       description,
@@ -228,6 +235,7 @@ export function computeRecurringBill(
       amountCents: Math.round(quantity * unitPriceCents),
       glCode,
       department,
+      lineType,
       sortOrder: index,
     };
   });

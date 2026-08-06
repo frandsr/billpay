@@ -16,6 +16,7 @@ import {
 import { getRecurringTemplate } from "@/server/queries/recurring";
 import { UpcomingRuns } from "@/components/recurring/upcoming-runs";
 import { EmptyState } from "@/components/common/empty-state";
+import { LineTypeBadge } from "@/components/common/line-type-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -241,8 +242,8 @@ export async function RecurringDetail({ templateId }: RecurringDetailProps) {
                   )}
                 </TableCell>
                 <TableCell>{line.department ?? "—"}</TableCell>
-                <TableCell className="capitalize">
-                  {line.lineType.toLowerCase()}
+                <TableCell>
+                  <LineTypeBadge lineType={line.lineType} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {line.quantity}

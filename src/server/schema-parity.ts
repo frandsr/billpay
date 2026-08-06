@@ -17,6 +17,7 @@ import type {
   ApprovalStepStatus as PrismaApprovalStepStatus,
   BillSource as PrismaBillSource,
   BillStatus as PrismaBillStatus,
+  LineType as PrismaLineType,
   PaymentMethod as PrismaPaymentMethod,
   PaymentStatus as PrismaPaymentStatus,
   PaymentTerms as PrismaPaymentTerms,
@@ -28,6 +29,7 @@ import type {
   ApprovalStepStatus,
   BillSource,
   BillStatus,
+  LineType,
   PaymentMethod,
   PaymentStatus,
   PaymentTerms,
@@ -50,6 +52,7 @@ type Expect<T extends true> = T;
 
 type _BillStatusParity = Expect<IsExact<BillStatus, PrismaBillStatus>>;
 type _BillSourceParity = Expect<IsExact<BillSource, PrismaBillSource>>;
+type _LineTypeParity = Expect<IsExact<LineType, PrismaLineType>>;
 type _PaymentStatusParity = Expect<IsExact<PaymentStatus, PrismaPaymentStatus>>;
 type _PaymentMethodParity = Expect<IsExact<PaymentMethod, PrismaPaymentMethod>>;
 type _PaymentTermsParity = Expect<IsExact<PaymentTerms, PrismaPaymentTerms>>;

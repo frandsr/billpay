@@ -53,6 +53,19 @@ export const BILL_SOURCES = [
 export type BillSource = (typeof BILL_SOURCES)[number];
 
 /**
+ * What a line item codes: spend, or a catalogue product.
+ *
+ * `EXPENSE` hits a GL expense account directly (a service, a subscription,
+ * rent). `ITEM` refers to a product record in the accounting system — inventory
+ * or a tracked good — so it syncs as an item rather than straight to an expense
+ * account, and it is the side of the axis that touches stock. See
+ * `@/lib/line-type` for the labels and the display metadata.
+ */
+export const LINE_TYPES = ["EXPENSE", "ITEM"] as const;
+
+export type LineType = (typeof LINE_TYPES)[number];
+
+/**
  * What a user is allowed to do.
  *
  * The role alone never decides: the predicates in `src/lib/permissions.ts`

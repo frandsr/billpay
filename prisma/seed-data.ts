@@ -459,8 +459,23 @@ export const APPROVAL_POLICIES: SeedApprovalPolicy[] = [
 // Bills
 // ---------------------------------------------------------------------------
 
-/** [description, quantity, unitPriceDollars, glCode | null, department | null] */
-export type SeedLine = [string, number, number, string | null, string | null];
+/**
+ * `[description, quantity, unitPriceDollars, glCode | null, department | null,
+ * lineType?]`
+ *
+ * The trailing `lineType` is per LINE, not per bill, because a real invoice
+ * mixes the two: equipment as an `ITEM` alongside its installation as an
+ * `EXPENSE`. Omitted means `EXPENSE` — spend that hits a GL expense account
+ * directly, which is what most AP lines are.
+ */
+export type SeedLine = [
+  string,
+  number,
+  number,
+  string | null,
+  string | null,
+  LineType?,
+];
 
 export interface SeedBill {
   key: string;
@@ -474,6 +489,7 @@ export interface SeedBill {
   memo?: string;
   createdById?: string;
   lines: SeedLine[];
+  /** Bill-wide default for lines that do not state their own type. */
   lineType?: LineType;
   /**
    * Overrides the computed Σ(lines). Used only to build deliberately
@@ -530,9 +546,21 @@ export const BILLS: SeedBill[] = [
     terms: "NET_15",
     dueInDays: 9,
     createdById: "usr_sofia",
+    // The clearest demonstration of the expense-vs-item axis in the dataset:
+    // ONE bill carrying both. The cleaning visits are a service and hit Rent &
+    // Facilities directly (EXPENSE); the restock is a catalogue good that syncs
+    // as an item record and hits Office Supplies (ITEM). It is a DRAFT on
+    // purpose — coding is editable there, so the Type control is reachable.
     lines: [
       ["Nightly office cleaning — 22 visits", 22, 45, "6200", "Operations"],
-      ["Deep clean — kitchen and lounge", 1, 260, "6200", "Operations"],
+      [
+        "Restroom and kitchen consumables — 4 cases",
+        4,
+        65,
+        "6220",
+        "Operations",
+        "ITEM",
+      ],
     ],
   },
   {
@@ -766,9 +794,19 @@ export const BILLS: SeedBill[] = [
     status: "APPROVED",
     terms: "DUE_ON_RECEIPT",
     dueInDays: 5,
+    // Design work (a service) invoiced alongside the printed goods it produced.
+    // Same bill, same vendor, two different things as far as the ledger is
+    // concerned — which is the whole point of the axis.
     lines: [
       ["Website redesign — phase 2", 1, 3400, "6300", "Marketing"],
-      ["Illustration set — 6 pieces", 6, 275, "6300", "Marketing"],
+      [
+        "Trade-show banner — 6 printed units",
+        6,
+        275,
+        "6300",
+        "Marketing",
+        "ITEM",
+      ],
     ],
   },
   {
@@ -843,7 +881,7 @@ export const BILLS: SeedBill[] = [
     createdById: "usr_sofia",
     lines: [
       ["Nightly office cleaning — 20 visits", 20, 45, "6200", "Operations"],
-      ["Window cleaning — quarterly", 1, 80, "6200", "Operations"],
+      ["Hand soap and paper restock", 1, 80, "6220", "Operations", "ITEM"],
     ],
     memo: "Fell through the cracks during the office move.",
   },
@@ -859,9 +897,18 @@ export const BILLS: SeedBill[] = [
     terms: "DUE_ON_RECEIPT",
     dueInDays: -6,
     decisionNote: "Scope does not match the signed SOW. Please re-issue.",
+    // REJECTED bills are editable too, so this is the second bill where the
+    // Type control can actually be exercised rather than only read.
     lines: [
       ["Brand refresh — discovery phase", 1, 4800, "6300", "Marketing"],
-      ["Motion design — 3 assets", 3, 1000, "6300", "Marketing"],
+      [
+        "Exhibition stand panels — 3 printed",
+        3,
+        1000,
+        "6300",
+        "Marketing",
+        "ITEM",
+      ],
     ],
   },
   {

@@ -32,6 +32,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { formatDate, fromDateInputValue } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { PAYMENT_TERMS, type PaymentTerms } from "@/lib/domain";
+import { normaliseLineType, type LineType } from "@/lib/line-type";
 import { formatCents, lineAmountCents, parseAmountToCents } from "@/lib/money";
 import {
   applyAllocationTemplate,
@@ -68,7 +69,7 @@ export interface LineItemInput {
   unitPriceAmount: string;
   glAccountId: string | null;
   department: string | null;
-  lineType: "EXPENSE" | "ITEM";
+  lineType: LineType;
 }
 
 export interface SplitInput {
@@ -554,7 +555,7 @@ async function parseLineItem(input: LineItemInput, currency: string) {
   // authoritative amount inside a line.
   const amountCents = lineAmountCents(quantity, unitPriceCents);
 
-  const lineType = input.lineType === "ITEM" ? "ITEM" : "EXPENSE";
+  const lineType = normaliseLineType(input.lineType);
   const glAccountId = await optionalGlAccountId(input.glAccountId);
   const department = optionalText(input.department);
 

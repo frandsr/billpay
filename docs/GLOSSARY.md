@@ -37,6 +37,14 @@ _Avoid_: category (that is a dimension).
 An additional classification axis on a line (department, category, location), orthogonal to the GL account.
 _Avoid_: account / GL.
 
+**Expense line**:
+A line item (`lineType = EXPENSE`) whose spend hits a GL expense account directly — a service, a subscription, rent, consulting. The default: most AP lines are this.
+_Avoid_: "expense" meaning an employee expense report (a different product).
+
+**Item line**:
+A line item (`lineType = ITEM`) that refers to a **catalogue product** — inventory or a tracked good. In a real deployment it maps to an item record in the accounting system rather than straight to an expense account, so it syncs differently to the ERP, and it is the side of the axis that touches inventory.
+_Avoid_: "line item" (that is the row itself; `EXPENSE | ITEM` is what the row *is*).
+
 **Split**:
 The distribution of **one** line (or the bill) across several GL accounts/dimensions, by percentage or fixed amount. The sum of splits = the line amount.
 _Avoid_: allocation template (the split is the instance; the template is the reusable pattern).

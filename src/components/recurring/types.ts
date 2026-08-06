@@ -13,6 +13,7 @@
  */
 
 import type { PaymentTerms, RecurringFrequency } from "@/lib/domain";
+import { LINE_TYPES, LINE_TYPE_LABELS, type LineType } from "@/lib/line-type";
 
 /** Currencies `formatCents` knows how to render (see `src/lib/money.ts`). */
 export const SUPPORTED_CURRENCIES = [
@@ -25,15 +26,15 @@ export const SUPPORTED_CURRENCIES = [
 
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 
-/** Mirrors the `LineType` enum in `prisma/schema.prisma`. */
-export const LINE_TYPES = ["EXPENSE", "ITEM"] as const;
+/**
+ * The expense-vs-item axis, re-exported from the functional core so the
+ * recurring form, the bill line-item editor and the seed all label it the same
+ * way. Definitions live in `@/lib/line-type`; three copies of the same two
+ * words is how a badge ends up saying something different from a select.
+ */
+export { LINE_TYPES, LINE_TYPE_LABELS };
 
-export type RecurringLineType = (typeof LINE_TYPES)[number];
-
-export const LINE_TYPE_LABELS: Record<RecurringLineType, string> = {
-  EXPENSE: "Expense",
-  ITEM: "Item",
-};
+export type RecurringLineType = LineType;
 
 /**
  * One coded template line. The GL account and department are the whole point:

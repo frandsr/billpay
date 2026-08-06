@@ -208,6 +208,7 @@ async function main() {
             amountCents: line.amountCents,
             glAccountId: line.glCode ? glIdByCode.get(line.glCode) : null,
             department: line.department,
+            lineType: line.lineType ?? "EXPENSE",
             sortOrder: line.sortOrder,
           })),
         },
@@ -263,7 +264,8 @@ async function main() {
             amountCents: line.amountCents,
             glAccountId: line.glCode ? glIdByCode.get(line.glCode) : null,
             department: line.department,
-            lineType: spec.lineType ?? "EXPENSE",
+            // Per-line first: one invoice can carry goods and services at once.
+            lineType: line.lineType ?? spec.lineType ?? "EXPENSE",
             sortOrder: line.sortOrder,
           })),
         },
