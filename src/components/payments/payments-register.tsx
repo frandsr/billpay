@@ -6,19 +6,24 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
+  SearchX,
   Send,
   TriangleAlert,
 } from "lucide-react";
 
 import {
+  CLEARED_PAYMENT_FILTERS,
   REGISTER_SECTIONS,
   REGISTER_SECTION_META,
+  activePaymentFilterChips,
   buildPaymentsHref,
+  hasActivePaymentFilters,
   parsePaymentFilters,
   sectionGroupsByDate,
   type PaymentFilters,
   type RegisterSection,
 } from "@/components/payments/payments-filters";
+import { PaymentsRegisterFilters } from "@/components/payments/payments-register-filters";
 import {
   formatDayDistance,
   groupPaymentsByScheduledDate,
@@ -43,6 +48,7 @@ import { formatCents } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS } from "@/lib/payment-lifecycle";
 import { cn } from "@/lib/utils";
 import {
+  getPaymentVendorOptions,
   getPaymentsRegister,
   type PaymentsRegisterResult,
   type RegisterPayment,
@@ -74,7 +80,19 @@ export async function PaymentsRegister({
   searchParams = {},
 }: PaymentsRegisterProps) {
   const filters = parsePaymentFilters(searchParams);
-  const result = await getPaymentsRegister(filters);
+
+  const [result, vendors] = await Promise.all([
+    getPaymentsRegister(filters),
+    getPaymentVendorOptions(),
+  ]);
+
+  const vendorNameById = Object.fromEntries(
+    vendors.map((vendor) => [vendor.id, vendor.name]),
+  );
+  const chips = activePaymentFilterChips(filters, {
+    vendorNameById,
+    formatDate: (value) => formatDate(`${value}T00:00:00.000Z`),
+  });
 
   return (
     <div className="space-y-4">
@@ -84,10 +102,33 @@ export async function PaymentsRegister({
 
       <SectionTabs filters={filters} counts={result.sectionCounts} />
 
+      <PaymentsRegisterFilters filters={filters} vendors={vendors} />
+
+      {chips.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {chips.map((chip) => (
+            <Link
+              key={chip.id}
+              href={buildPaymentsHref(filters, chip.removePatch)}
+              scroll={false}
+              className="border-input bg-muted/40 text-foreground hover:bg-muted inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs transition-colors"
+              title={`Remove the ${chip.group.toLowerCase()} filter`}
+            >
+              <span className="text-muted-foreground">{chip.group}</span>
+              <span className="font-medium">{chip.value}</span>
+              <span aria-hidden className="text-muted-foreground">
+                ×
+              </span>
+              <span className="sr-only">Remove filter</span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
       <SectionSummary filters={filters} result={result} />
 
       {result.payments.length === 0 ? (
-        <SectionEmptyState section={filters.section} />
+        <SectionEmptyState filters={filters} />
       ) : (
         <PaymentsTable filters={filters} result={result} />
       )}
@@ -566,12 +607,37 @@ function PaymentTiming({
 // Empty states
 // ---------------------------------------------------------------------------
 
-function SectionEmptyState({ section }: { section: RegisterSection }) {
-  const meta = REGISTER_SECTION_META[section];
+/**
+ * An empty section and an empty result are different things, and the copy says
+ * which. "No failed payments" is good news; "no payments match these filters"
+ * is a dead end the reader should be able to back out of.
+ */
+function SectionEmptyState({ filters }: { filters: PaymentFilters }) {
+  if (hasActivePaymentFilters(filters)) {
+    return (
+      <EmptyState
+        icon={SearchX}
+        title="No payments match these filters"
+        description="Widen the date range, or clear the filters to see the whole section."
+        action={
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href={buildPaymentsHref(filters, CLEARED_PAYMENT_FILTERS)}
+              scroll={false}
+            >
+              Clear filters
+            </Link>
+          </Button>
+        }
+      />
+    );
+  }
+
+  const meta = REGISTER_SECTION_META[filters.section];
 
   return (
     <EmptyState
-      icon={section === "failed" ? CheckCircle2 : Banknote}
+      icon={filters.section === "failed" ? CheckCircle2 : Banknote}
       title={meta.emptyTitle}
       description={meta.emptyDescription}
       action={
