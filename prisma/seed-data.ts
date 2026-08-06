@@ -21,6 +21,7 @@ import type {
   PaymentMethod,
   PaymentStatus,
   PaymentTerms,
+  RecurringFrequency,
   UserRole,
 } from "@prisma/client";
 
@@ -1078,6 +1079,254 @@ export const BILLS: SeedBill[] = [
     dueInDays: 6,
     decisionNote: "Engagement cancelled before the contractor started.",
     lines: [["Contract designer — retainer", 1, 3400, "6400", "Marketing"]],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Splits and allocation templates
+//
+// GLOSSARY: a SPLIT distributes ONE line across several GL accounts/dimensions
+// and Σ(splits) equals the line amount; an ALLOCATION TEMPLATE is a saved,
+// named split pattern. Shares are BASIS POINTS (1% = 100), and the cents are
+// distributed by `distributeByBasisPoints` so they always add back up.
+// ---------------------------------------------------------------------------
+
+/** One share of a split or of a template. */
+export interface SeedAllocationRow {
+  glCode: string;
+  department: string | null;
+  percentBasisPoints: number;
+}
+
+export interface SeedAllocationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  active?: boolean;
+  rows: SeedAllocationRow[];
+}
+
+export const ALLOCATION_TEMPLATES: SeedAllocationTemplate[] = [
+  {
+    id: "alt_office_rent",
+    name: "Office rent 50/30/20",
+    description:
+      "Headcount-based split of workplace costs across Engineering, Sales and Operations.",
+    rows: [
+      { glCode: "6200", department: "Engineering", percentBasisPoints: 5000 },
+      { glCode: "6200", department: "Sales", percentBasisPoints: 3000 },
+      { glCode: "6200", department: "Operations", percentBasisPoints: 2000 },
+    ],
+  },
+  {
+    id: "alt_cloud_by_team",
+    name: "Cloud spend by team",
+    description:
+      "Infrastructure cost allocation agreed with FinOps: 70% Engineering, 30% Data.",
+    rows: [
+      { glCode: "6110", department: "Engineering", percentBasisPoints: 7000 },
+      { glCode: "6110", department: "Data", percentBasisPoints: 3000 },
+    ],
+  },
+];
+
+/** Splits applied to a specific line of a specific bill. */
+export interface SeedLineItemSplits {
+  /** `SeedBill.key`. */
+  billKey: string;
+  /** `sortOrder` of the line within that bill (its index in `lines`). */
+  lineSortOrder: number;
+  rows: SeedAllocationRow[];
+}
+
+/**
+ * Six seeded splits, so the coding UI has something to render before anyone
+ * touches it. The AWS rows deliberately do not divide evenly — the largest
+ * remainder distribution is visible in the demo data, not just in a test.
+ */
+export const LINE_ITEM_SPLITS: SeedLineItemSplits[] = [
+  // Rent, split 50/30/20 by headcount — twice, on two months of the same lease,
+  // which is exactly the case the allocation template exists to serve.
+  {
+    billKey: "await_wework",
+    lineSortOrder: 0,
+    rows: ALLOCATION_TEMPLATES[0].rows,
+  },
+  {
+    billKey: "appr_wework",
+    lineSortOrder: 0,
+    rows: ALLOCATION_TEMPLATES[0].rows,
+  },
+  // Cloud spend across two teams. $8,420.55 at 70/30 does not divide cleanly.
+  {
+    billKey: "await_aws",
+    lineSortOrder: 0,
+    rows: ALLOCATION_TEMPLATES[1].rows,
+  },
+  {
+    billKey: "appr_aws",
+    lineSortOrder: 0,
+    rows: [
+      { glCode: "6110", department: "Engineering", percentBasisPoints: 6500 },
+      { glCode: "6110", department: "Data", percentBasisPoints: 3500 },
+    ],
+  },
+  // Insurance premium spread over the departments it covers.
+  {
+    billKey: "await_northgate",
+    lineSortOrder: 0,
+    rows: [
+      { glCode: "6600", department: "G&A", percentBasisPoints: 5000 },
+      { glCode: "6600", department: "Engineering", percentBasisPoints: 3000 },
+      { glCode: "6600", department: "Operations", percentBasisPoints: 2000 },
+    ],
+  },
+  // Payroll platform, allocated by seats per department.
+  {
+    billKey: "await_gusto",
+    lineSortOrder: 0,
+    rows: [
+      { glCode: "6000", department: "People", percentBasisPoints: 4000 },
+      { glCode: "6000", department: "Engineering", percentBasisPoints: 3500 },
+      { glCode: "6000", department: "Sales", percentBasisPoints: 2500 },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Recurring bills — generators, not bills
+// ---------------------------------------------------------------------------
+
+export interface SeedRecurringBill {
+  id: string;
+  vendorKey: string;
+  name: string;
+  frequency: RecurringFrequency;
+  /** Days from today (UTC). Zero or negative = already due to generate. */
+  nextRunInDays: number;
+  /** Preferred day of month, clamped to the month length. */
+  dayOfMonth?: number;
+  terms: PaymentTerms;
+  memo?: string;
+  /** A paused template owes nothing until it is switched back on. */
+  active?: boolean;
+  createdById?: string;
+  /** Days from today the template last produced a bill. */
+  lastGeneratedInDays?: number;
+  lines: SeedLine[];
+}
+
+/**
+ * Four templates. Two are already due (`nextRunInDays` ≤ 0) so "generate now"
+ * produces a visible DRAFT on the reviewer's first click, one is upcoming, and
+ * one is paused to exercise the inactive state.
+ */
+export const RECURRING_BILLS: SeedRecurringBill[] = [
+  {
+    id: "rec_wework_rent",
+    vendorKey: "wework",
+    name: "WeWork — monthly membership",
+    frequency: "MONTHLY",
+    nextRunInDays: -2,
+    dayOfMonth: 1,
+    terms: "NET_15",
+    memo: "Membership invoice arrives on the 1st. Coding matches last month.",
+    createdById: "usr_sofia",
+    lastGeneratedInDays: -32,
+    lines: [
+      ["Dedicated desks — 42 @ monthly rate", 42, 410, "6200", "Operations"],
+      ["Private office 10B", 1, 1280, "6200", "Operations"],
+    ],
+  },
+  {
+    id: "rec_northgate_insurance",
+    vendorKey: "northgate",
+    name: "Northgate — quarterly insurance premium",
+    frequency: "QUARTERLY",
+    nextRunInDays: 0,
+    terms: "NET_60",
+    memo: "Annual policy billed quarterly: general liability + D&O.",
+    lastGeneratedInDays: -91,
+    lines: [
+      ["General liability — quarterly premium", 1, 6400, "6600", "G&A"],
+      ["D&O liability — quarterly premium", 1, 5500, "6600", "G&A"],
+    ],
+  },
+  {
+    id: "rec_figma_seats",
+    vendorKey: "figma",
+    name: "Figma — monthly seats",
+    frequency: "MONTHLY",
+    nextRunInDays: 6,
+    dayOfMonth: 12,
+    terms: "NET_30",
+    lastGeneratedInDays: -25,
+    lines: [
+      ["Figma Organization — 42 editor seats", 42, 45, "6100", "Engineering"],
+      ["FigJam — 7 seats", 7, 45, "6100", "Engineering"],
+    ],
+  },
+  {
+    id: "rec_sparkle_cleaning",
+    vendorKey: "sparkle",
+    name: "Sparkle City — nightly office cleaning",
+    frequency: "MONTHLY",
+    nextRunInDays: 11,
+    dayOfMonth: 5,
+    terms: "NET_15",
+    active: false,
+    memo: "Paused while the office is being refitted. Resume in March.",
+    createdById: "usr_sofia",
+    lastGeneratedInDays: -36,
+    lines: [
+      ["Nightly office cleaning — 22 visits", 22, 45, "6200", "Operations"],
+    ],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// OCR extractions — an auditable RUN against a bill's invoice document
+// ---------------------------------------------------------------------------
+
+export interface SeedOcrExtraction {
+  /** `SeedBill.key`. */
+  billKey: string;
+  provider: string;
+  /** Overall confidence in basis points (0–10000). */
+  confidenceBasisPoints: number;
+  /** Per-field confidence, same units. */
+  fieldConfidence: Record<string, number>;
+  /** What a reviewer needs to look at, written by the extractor. */
+  warnings: string[];
+  /** Days from today the run happened. */
+  extractedInDays: number;
+}
+
+/**
+ * One run, attached to the OCR-mismatch draft (IPS-3391) whose scanned total
+ * does not agree with its extracted lines. That draft is already the seed's
+ * `Missing info` example; giving it a stored extraction means the OCR review UI
+ * has a real disagreement to render before anyone uploads a file.
+ */
+export const OCR_EXTRACTIONS: SeedOcrExtraction[] = [
+  {
+    billKey: "draft_ironpeak",
+    provider: "demo-ocr",
+    confidenceBasisPoints: 7120,
+    fieldConfidence: {
+      vendorName: 9820,
+      billNumber: 9910,
+      issueDate: 9405,
+      dueDate: 8830,
+      paymentTerms: 8800,
+      totalCents: 7120,
+      lineItems: 6650,
+    },
+    warnings: [
+      "Extracted line items sum to less than the extracted total — a line may be missing from the scan.",
+      "Payment terms were inferred from the due date, not read from the document.",
+    ],
+    extractedInDays: -41,
   },
 ];
 

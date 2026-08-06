@@ -6,7 +6,15 @@
  * so the documents and the rows can never disagree.
  */
 
-import { BILLS, type SeedBill } from "./seed-data";
+import { distributeByBasisPoints } from "../src/lib/splits";
+import {
+  BILLS,
+  LINE_ITEM_SPLITS,
+  RECURRING_BILLS,
+  type SeedAllocationRow,
+  type SeedBill,
+  type SeedRecurringBill,
+} from "./seed-data";
 
 export const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -122,3 +130,123 @@ export function computeBill(spec: SeedBill): ComputedBill {
 }
 
 export const COMPUTED_BILLS: ComputedBill[] = BILLS.map(computeBill);
+
+export const COMPUTED_BILLS_BY_KEY: Map<string, ComputedBill> = new Map(
+  COMPUTED_BILLS.map((bill) => [bill.spec.key, bill]),
+);
+
+// ---------------------------------------------------------------------------
+// Splits
+// ---------------------------------------------------------------------------
+
+export interface ComputedSplit {
+  glCode: string;
+  department: string | null;
+  amountCents: number;
+  percentBasisPoints: number;
+  sortOrder: number;
+}
+
+export interface ComputedLineItemSplits {
+  billKey: string;
+  lineSortOrder: number;
+  /** The line amount the splits must add back up to. */
+  lineAmountCents: number;
+  splits: ComputedSplit[];
+}
+
+/**
+ * Turn percentage shares into cents with the SAME function the app uses
+ * (`distributeByBasisPoints`), so the seeded splits satisfy the invariant the
+ * UI enforces: Σ(splits) === LineItem.amountCents, exactly, with no lost cent.
+ */
+export function computeSplits(
+  lineAmountCents: number,
+  rows: readonly SeedAllocationRow[],
+): ComputedSplit[] {
+  const amounts = distributeByBasisPoints(
+    lineAmountCents,
+    rows.map((row) => row.percentBasisPoints),
+  );
+
+  return rows.map((row, index) => ({
+    glCode: row.glCode,
+    department: row.department,
+    amountCents: amounts[index] ?? 0,
+    percentBasisPoints: row.percentBasisPoints,
+    sortOrder: index,
+  }));
+}
+
+export const COMPUTED_LINE_ITEM_SPLITS: ComputedLineItemSplits[] =
+  LINE_ITEM_SPLITS.map((spec) => {
+    const bill = COMPUTED_BILLS_BY_KEY.get(spec.billKey);
+    if (!bill) {
+      throw new Error(`Split references an unknown bill key: ${spec.billKey}`);
+    }
+
+    const line = bill.lines[spec.lineSortOrder];
+    if (!line) {
+      throw new Error(
+        `Split references line ${spec.lineSortOrder} of ${spec.billKey}, which has ${bill.lines.length} line(s).`,
+      );
+    }
+
+    return {
+      billKey: spec.billKey,
+      lineSortOrder: spec.lineSortOrder,
+      lineAmountCents: line.amountCents,
+      splits: computeSplits(line.amountCents, spec.rows),
+    };
+  });
+
+// ---------------------------------------------------------------------------
+// Recurring bills
+// ---------------------------------------------------------------------------
+
+export interface ComputedRecurringBill {
+  spec: SeedRecurringBill;
+  lines: ComputedLine[];
+  /** Authoritative amount of each generated bill (Σ of the template lines). */
+  totalCents: number;
+  nextRunDate: Date;
+  lastGeneratedAt: Date | null;
+  /** True when the template already owes a bill as of today. */
+  due: boolean;
+}
+
+export function computeRecurringBill(
+  spec: SeedRecurringBill,
+): ComputedRecurringBill {
+  const lines: ComputedLine[] = spec.lines.map((line, index) => {
+    const [description, quantity, unitPriceDollars, glCode, department] = line;
+    const unitPriceCents = toCents(unitPriceDollars);
+    return {
+      description,
+      quantity,
+      unitPriceCents,
+      amountCents: Math.round(quantity * unitPriceCents),
+      glCode,
+      department,
+      sortOrder: index,
+    };
+  });
+
+  const totalCents = lines.reduce((sum, line) => sum + line.amountCents, 0);
+  const nextRunDate = dayOffset(spec.nextRunInDays);
+
+  return {
+    spec,
+    lines,
+    totalCents,
+    nextRunDate,
+    lastGeneratedAt:
+      spec.lastGeneratedInDays === undefined
+        ? null
+        : at(dayOffset(spec.lastGeneratedInDays), 6, 5),
+    due: spec.active !== false && spec.nextRunInDays <= 0,
+  };
+}
+
+export const COMPUTED_RECURRING_BILLS: ComputedRecurringBill[] =
+  RECURRING_BILLS.map(computeRecurringBill);

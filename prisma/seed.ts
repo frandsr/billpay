@@ -15,14 +15,19 @@ import {
 import { resolveApproverChain } from "../src/lib/approval-policy";
 import {
   ACTIVITY_MESSAGES,
+  ALLOCATION_TEMPLATES,
   APPROVAL_POLICIES,
   GL_ACCOUNTS,
+  OCR_EXTRACTIONS,
   USERS,
   VENDORS,
   type SeedBill,
 } from "./seed-data";
 import {
   COMPUTED_BILLS,
+  COMPUTED_BILLS_BY_KEY,
+  COMPUTED_LINE_ITEM_SPLITS,
+  COMPUTED_RECURRING_BILLS,
   MS_PER_DAY,
   at,
   dayOffset,
@@ -49,12 +54,19 @@ async function main() {
 
   console.log("Seeding Bill Pay demo data…\n");
 
-  // Order matters: children first.
+  // Order matters: children first. Bills are removed before recurring bills
+  // because a generated bill points back at the template that produced it.
   await prisma.activity.deleteMany();
   await prisma.approvalStep.deleteMany();
   await prisma.payment.deleteMany();
+  await prisma.lineItemSplit.deleteMany();
   await prisma.lineItem.deleteMany();
+  await prisma.ocrExtraction.deleteMany();
   await prisma.bill.deleteMany();
+  await prisma.recurringBillLineItem.deleteMany();
+  await prisma.recurringBill.deleteMany();
+  await prisma.allocationTemplateSplit.deleteMany();
+  await prisma.allocationTemplate.deleteMany();
   await prisma.approvalPolicyStep.deleteMany();
   await prisma.approvalPolicy.deleteMany();
   await prisma.vendor.deleteMany();
@@ -119,6 +131,28 @@ async function main() {
     vendorIdByKey.set(vendor.key, created.id);
   }
 
+  // --- Allocation templates ----------------------------------------------
+  // Saved, named split patterns (GLOSSARY: allocation template). Percentage
+  // only, so the same template applies to a line of any size.
+  for (const template of ALLOCATION_TEMPLATES) {
+    await prisma.allocationTemplate.create({
+      data: {
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        active: template.active ?? true,
+        splits: {
+          create: template.rows.map((row, index) => ({
+            glAccountId: requireGlId(glIdByCode, row.glCode),
+            department: row.department,
+            percentBasisPoints: row.percentBasisPoints,
+            sortOrder: index,
+          })),
+        },
+      },
+    });
+  }
+
   // --- Approval policies -------------------------------------------------
   const policies = [];
   for (const policy of APPROVAL_POLICIES) {
@@ -142,8 +176,50 @@ async function main() {
     policies.push(created);
   }
 
+  // --- Recurring bills ----------------------------------------------------
+  // A recurring bill is a GENERATOR, not a bill: it owes a DRAFT on each
+  // occurrence of its cadence. Two of the four are already due, so "generate
+  // now" produces a visible draft on the reviewer's first click.
+  for (const recurring of COMPUTED_RECURRING_BILLS) {
+    const { spec, lines, totalCents, nextRunDate, lastGeneratedAt } = recurring;
+    const vendorId = vendorIdByKey.get(spec.vendorKey);
+    if (!vendorId) throw new Error(`Unknown vendor key: ${spec.vendorKey}`);
+
+    await prisma.recurringBill.create({
+      data: {
+        id: spec.id,
+        vendorId,
+        name: spec.name,
+        amountCents: totalCents,
+        currency: "USD",
+        paymentTerms: spec.terms,
+        memo: spec.memo,
+        frequency: spec.frequency,
+        nextRunDate,
+        dayOfMonth: spec.dayOfMonth,
+        active: spec.active ?? true,
+        createdById: spec.createdById ?? USERS[0].id,
+        lastGeneratedAt,
+        lineItems: {
+          create: lines.map((line) => ({
+            description: line.description,
+            quantity: line.quantity,
+            unitPriceCents: line.unitPriceCents,
+            amountCents: line.amountCents,
+            glAccountId: line.glCode ? glIdByCode.get(line.glCode) : null,
+            department: line.department,
+            sortOrder: line.sortOrder,
+          })),
+        },
+      },
+    });
+  }
+
   // --- Bills -------------------------------------------------------------
   const defaultCreatorId = USERS[0].id;
+  /** billKey -> line item ids in `sortOrder`, so splits can be attached after. */
+  const lineItemIdsByBillKey = new Map<string, string[]>();
+  const billIdByKey = new Map<string, string>();
 
   for (const computed of COMPUTED_BILLS) {
     const { spec, lines, totalCents, dueDate, issueDate, createdAt } = computed;
@@ -192,7 +268,16 @@ async function main() {
           })),
         },
       },
+      include: { lineItems: true },
     });
+
+    billIdByKey.set(spec.key, bill.id);
+    lineItemIdsByBillKey.set(
+      spec.key,
+      [...bill.lineItems]
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((line) => line.id),
+    );
 
     // --- Approval steps --------------------------------------------------
     const stepDecisions = decideSteps(
@@ -364,7 +449,111 @@ async function main() {
     });
   }
 
+  // --- Line-item splits ---------------------------------------------------
+  // A line with splits is coded BY the splits, and Σ(splits) equals the line
+  // amount exactly — the cents were distributed by the same
+  // `distributeByBasisPoints` the app uses (see seed-compute.ts).
+  for (const spec of COMPUTED_LINE_ITEM_SPLITS) {
+    const lineItemIds = lineItemIdsByBillKey.get(spec.billKey);
+    const lineItemId = lineItemIds?.[spec.lineSortOrder];
+    if (!lineItemId) {
+      throw new Error(
+        `No line item ${spec.lineSortOrder} on bill ${spec.billKey} to split.`,
+      );
+    }
+
+    const total = spec.splits.reduce((sum, split) => sum + split.amountCents, 0);
+    if (total !== spec.lineAmountCents) {
+      throw new Error(
+        `Splits for ${spec.billKey}#${spec.lineSortOrder} sum to ${total}, not ${spec.lineAmountCents}.`,
+      );
+    }
+
+    await prisma.lineItemSplit.createMany({
+      data: spec.splits.map((split) => ({
+        lineItemId,
+        glAccountId: requireGlId(glIdByCode, split.glCode),
+        department: split.department,
+        amountCents: split.amountCents,
+        percentBasisPoints: split.percentBasisPoints,
+        sortOrder: split.sortOrder,
+      })),
+    });
+  }
+
+  // --- OCR extractions ----------------------------------------------------
+  // Stored as a sibling row, not folded into the bill, so the review UI can
+  // show what the extractor claimed NEXT TO what the bill says.
+  for (const spec of OCR_EXTRACTIONS) {
+    const billId = billIdByKey.get(spec.billKey);
+    const computed = COMPUTED_BILLS_BY_KEY.get(spec.billKey);
+    if (!billId || !computed) {
+      throw new Error(`OCR extraction references unknown bill: ${spec.billKey}`);
+    }
+
+    await prisma.ocrExtraction.create({
+      data: {
+        billId,
+        provider: spec.provider,
+        confidenceBasisPoints: spec.confidenceBasisPoints,
+        extractedAt: at(dayOffset(spec.extractedInDays), 7, 42),
+        rawResult: {
+          documentFileName: invoiceFileName(computed.spec.billNumber),
+          fields: {
+            vendorName: {
+              value: vendorNameByKey(computed.spec.vendorKey),
+              confidenceBasisPoints: spec.fieldConfidence.vendorName,
+            },
+            billNumber: {
+              value: computed.spec.billNumber,
+              confidenceBasisPoints: spec.fieldConfidence.billNumber,
+            },
+            issueDate: {
+              value: computed.issueDate.toISOString().slice(0, 10),
+              confidenceBasisPoints: spec.fieldConfidence.issueDate,
+            },
+            dueDate: {
+              value: computed.dueDate.toISOString().slice(0, 10),
+              confidenceBasisPoints: spec.fieldConfidence.dueDate,
+            },
+            paymentTerms: {
+              value: computed.spec.terms,
+              confidenceBasisPoints: spec.fieldConfidence.paymentTerms,
+            },
+            totalCents: {
+              value: computed.totalCents,
+              confidenceBasisPoints: spec.fieldConfidence.totalCents,
+            },
+          },
+          lineItems: computed.lines.map((line) => ({
+            description: line.description,
+            quantity: line.quantity,
+            unitPriceCents: line.unitPriceCents,
+            amountCents: line.amountCents,
+            confidenceBasisPoints: spec.fieldConfidence.lineItems,
+          })),
+          // The whole point of this row: the extractor's own total and its own
+          // lines disagree, which is why the bill reads `Missing info`.
+          lineTotalCents: computed.lineTotalCents,
+          warnings: spec.warnings,
+        },
+      },
+    });
+  }
+
   await report();
+}
+
+function requireGlId(glIdByCode: Map<string, string>, code: string): string {
+  const id = glIdByCode.get(code);
+  if (!id) throw new Error(`Unknown GL account code: ${code}`);
+  return id;
+}
+
+function vendorNameByKey(key: string): string {
+  const vendor = VENDORS.find((candidate) => candidate.key === key);
+  if (!vendor) throw new Error(`Unknown vendor key: ${key}`);
+  return vendor.name;
 }
 
 /**
@@ -437,6 +626,12 @@ async function report() {
     policySteps,
     bills,
     lineItems,
+    lineItemSplits,
+    allocationTemplates,
+    allocationTemplateSplits,
+    recurringBills,
+    recurringBillLineItems,
+    ocrExtractions,
     payments,
     approvalSteps,
     activities,
@@ -448,10 +643,20 @@ async function report() {
     prisma.approvalPolicyStep.count(),
     prisma.bill.count(),
     prisma.lineItem.count(),
+    prisma.lineItemSplit.count(),
+    prisma.allocationTemplate.count(),
+    prisma.allocationTemplateSplit.count(),
+    prisma.recurringBill.count(),
+    prisma.recurringBillLineItem.count(),
+    prisma.ocrExtraction.count(),
     prisma.payment.count(),
     prisma.approvalStep.count(),
     prisma.activity.count(),
   ]);
+
+  const dueRecurring = await prisma.recurringBill.count({
+    where: { active: true, nextRunDate: { lte: new Date() } },
+  });
 
   const byStatus = await prisma.bill.groupBy({
     by: ["status"],
@@ -467,6 +672,12 @@ async function report() {
     ["approval_policy_steps", policySteps],
     ["bills", bills],
     ["line_items", lineItems],
+    ["line_item_splits", lineItemSplits],
+    ["allocation_templates", allocationTemplates],
+    ["allocation_template_splits", allocationTemplateSplits],
+    ["recurring_bills", recurringBills],
+    ["recurring_bill_line_items", recurringBillLineItems],
+    ["ocr_extractions", ocrExtractions],
     ["payments", payments],
     ["approval_steps", approvalSteps],
     ["activities", activities],
@@ -475,7 +686,7 @@ async function report() {
   console.log("Row counts");
   console.log("──────────────────────────────────");
   for (const [label, count] of rows) {
-    console.log(`  ${label.padEnd(24)} ${String(count).padStart(5)}`);
+    console.log(`  ${label.padEnd(28)} ${String(count).padStart(5)}`);
   }
 
   console.log("\nBills by status");
@@ -485,6 +696,10 @@ async function report() {
       `  ${row.status.padEnd(24)} ${String(row._count._all).padStart(5)}`,
     );
   }
+
+  console.log(
+    `\n${dueRecurring} recurring bill template(s) already due — "generate now" produces a draft immediately.`,
+  );
   console.log("\nSeed complete.");
 }
 
