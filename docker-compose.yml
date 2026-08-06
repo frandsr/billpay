@@ -1,0 +1,48 @@
+# `docker compose up --build` brings up Postgres AND the app, applies the
+# migrations, seeds the demo data and serves Bill Pay on http://localhost:3000.
+#
+# For local development without the app container:
+#   docker compose up -d db
+#   pnpm install && pnpm db:migrate && pnpm db:seed && pnpm dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: billpay-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-billpay}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billpay}
+      POSTGRES_DB: ${POSTGRES_DB:-billpay}
+    ports:
+      - "5432:5432"
+    volumes:
+      - billpay-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-billpay} -d ${POSTGRES_DB:-billpay}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: billpay-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Inside the compose network the database is reachable as `db`.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-billpay}:${POSTGRES_PASSWORD:-billpay}@db:5432/${POSTGRES_DB:-billpay}?schema=public
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "3000:3000"
+
+volumes:
+  billpay-db-data:
