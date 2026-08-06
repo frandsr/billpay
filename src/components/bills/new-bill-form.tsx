@@ -384,8 +384,18 @@ export function NewBillForm({
       <Card>
         <CardHeader className="border-b">
           <CardTitle>Line items</CardTitle>
-          <CardDescription>
-            Each line is coded independently to a GL account and a department.
+          <CardDescription className="space-y-1">
+            <p>
+              Each line is coded independently to a GL account and a department.
+            </p>
+            {/* The split editor deliberately lives on the bill, not here — this
+                points at it so the one-account-per-line grid below does not read
+                as the only option. */}
+            <p className="text-xs">
+              To split a line item across several GL accounts or departments — or
+              to apply a saved allocation template — save the bill and use the
+              coding panel on the bill.
+            </p>
           </CardDescription>
         </CardHeader>
 
