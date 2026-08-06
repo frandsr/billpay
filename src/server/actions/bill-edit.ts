@@ -272,8 +272,9 @@ export async function updateLineItem(
     // distribution the editor uses. A fixed-amount split cannot be guessed at —
     // say so rather than leaving the line silently out of balance.
     const amountChanged = parsed.amountCents !== line.amountCents;
+    const isSplit = line.splits.length > 0;
     const redistributed =
-      amountChanged && line.splits.length > 0
+      amountChanged && isSplit
         ? redistributeSplits(line.splits, parsed.amountCents)
         : null;
 
@@ -285,7 +286,13 @@ export async function updateLineItem(
           quantity: parsed.quantity,
           unitPriceCents: parsed.unitPriceCents,
           amountCents: parsed.amountCents,
-          glAccountId: parsed.glAccountId,
+          // A split line is coded BY its splits (GLOSSARY), so it must not also
+          // carry a direct account. We CLEAR rather than ignore: leaving a
+          // stale `glAccountId` on a split line would let anything that reads
+          // the column without also reading `splits` — a report, an export, a
+          // future query — attribute the whole line to an account that codes
+          // none of it. Null here means exactly one thing: "the splits say".
+          glAccountId: isSplit ? null : parsed.glAccountId,
           department: parsed.department,
           lineType: parsed.lineType,
         },
@@ -617,11 +624,15 @@ async function normaliseSplits(splits: SplitInput[], lineTotalCents: number) {
 /**
  * Swap a line's split set in one transaction.
  *
- * The line's own `glAccountId` is deliberately left alone. A split line is
- * coded BY its splits (GLOSSARY), and `draftReadinessDetail` asks the splits
- * directly, so there is nothing to compensate for: writing a direct account
- * derived from the largest split would only make the line claim a coding it
- * does not have.
+ * A split line is coded BY its splits (GLOSSARY), so gaining splits clears the
+ * line's own `glAccountId`. That keeps one invariant true everywhere: a line's
+ * direct account is non-null only when it has no splits, and the two can never
+ * disagree about what codes the line.
+ *
+ * Nothing is written back the other way — a direct account derived from the
+ * largest split would make the line claim a coding it does not have. Dropping
+ * every split therefore leaves the line uncoded, which `draftReadinessDetail`
+ * surfaces as `Missing info` rather than silently restoring a stale account.
  */
 async function replaceSplits(
   line: { id: string },
@@ -632,6 +643,10 @@ async function replaceSplits(
     if (rows.length > 0) {
       await tx.lineItemSplit.createMany({
         data: rows.map((row) => ({ ...row, lineItemId: line.id })),
+      });
+      await tx.lineItem.update({
+        where: { id: line.id },
+        data: { glAccountId: null },
       });
     }
   });
