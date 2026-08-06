@@ -15,20 +15,24 @@
 
 import type {
   ApprovalStepStatus as PrismaApprovalStepStatus,
+  BillSource as PrismaBillSource,
   BillStatus as PrismaBillStatus,
   PaymentMethod as PrismaPaymentMethod,
   PaymentStatus as PrismaPaymentStatus,
   PaymentTerms as PrismaPaymentTerms,
   RecurringFrequency as PrismaRecurringFrequency,
+  UserRole as PrismaUserRole,
 } from "@prisma/client";
 
 import type {
   ApprovalStepStatus,
+  BillSource,
   BillStatus,
   PaymentMethod,
   PaymentStatus,
   PaymentTerms,
   RecurringFrequency,
+  UserRole,
 } from "@/lib/domain";
 
 /**
@@ -45,6 +49,7 @@ type IsExact<A, B> =
 type Expect<T extends true> = T;
 
 type _BillStatusParity = Expect<IsExact<BillStatus, PrismaBillStatus>>;
+type _BillSourceParity = Expect<IsExact<BillSource, PrismaBillSource>>;
 type _PaymentStatusParity = Expect<IsExact<PaymentStatus, PrismaPaymentStatus>>;
 type _PaymentMethodParity = Expect<IsExact<PaymentMethod, PrismaPaymentMethod>>;
 type _PaymentTermsParity = Expect<IsExact<PaymentTerms, PrismaPaymentTerms>>;
@@ -54,5 +59,6 @@ type _ApprovalStepStatusParity = Expect<
 type _RecurringFrequencyParity = Expect<
   IsExact<RecurringFrequency, PrismaRecurringFrequency>
 >;
+type _UserRoleParity = Expect<IsExact<UserRole, PrismaUserRole>>;
 
 export {};

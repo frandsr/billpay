@@ -33,6 +33,35 @@ export const BILL_STATUSES = [
 
 export type BillStatus = (typeof BILL_STATUSES)[number];
 
+/**
+ * How the bill entered the system.
+ *
+ * `RECURRING` is the channel a `RecurringBill` template writes; it is a
+ * provenance record, not a lifecycle flag — a generated bill is an ordinary
+ * DRAFT in every other respect. `EMAIL` is the one member still unimplemented
+ * (ADR 0008 defers inbound mail), and it stays here because the seam is the
+ * enum, not the code.
+ */
+export const BILL_SOURCES = [
+  "MANUAL",
+  "OCR",
+  "CSV",
+  "EMAIL",
+  "RECURRING",
+] as const;
+
+export type BillSource = (typeof BILL_SOURCES)[number];
+
+/**
+ * What a user is allowed to do.
+ *
+ * The role alone never decides: the predicates in `src/lib/permissions.ts`
+ * combine it with the bill at hand, and the server actions enforce them.
+ */
+export const USER_ROLES = ["ADMIN", "APPROVER", "MEMBER"] as const;
+
+export type UserRole = (typeof USER_ROLES)[number];
+
 /** The Payment's own lifecycle, independent of `BillStatus`. */
 export const PAYMENT_STATUSES = [
   "SCHEDULED",

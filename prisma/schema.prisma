@@ -62,11 +62,16 @@ enum BillStatus {
 
 /// How the bill entered the system. Roadmap ingestion (OCR / CSV / email)
 /// slots in here without a schema change.
+///
+/// RECURRING is the channel a RecurringBill template writes: provenance, not a
+/// lifecycle flag. A generated bill is an ordinary DRAFT in every other respect,
+/// and `Bill.recurringBillId` carries the link back to the template.
 enum BillSource {
   MANUAL
   OCR
   CSV
   EMAIL
+  RECURRING
 }
 
 enum LineType {
