@@ -9,15 +9,13 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>
 endobj
 4 0 obj
-<< /Length 2456 >>
+<< /Length 2347 >>
 stream
 q 0.97 g 0 674 612 118 re f Q
 0 g
 BT /F2 18 Tf 1 0 0 1 56 732 Tm (Bellweather Design Studio) Tj ET
 0.35 g
-BT /F1 9 Tf 1 0 0 1 56 714 Tm (18 Abbot Kinney Blvd) Tj ET
-BT /F1 9 Tf 1 0 0 1 56 702 Tm (Venice, CA 90291) Tj ET
-BT /F1 9 Tf 1 0 0 1 56 690 Tm (studio@bellweather.example) Tj ET
+BT /F1 9 Tf 1 0 0 1 56 714 Tm (studio@bellweather.example) Tj ET
 0 g
 BT /F2 22 Tf 1 0 0 1 471.3 732 Tm (INVOICE) Tj ET
 0.35 g
@@ -72,7 +70,7 @@ q 0.93 g 390 381 174 26 re f Q
 BT /F2 11 Tf 1 0 0 1 415.55 389 Tm (Total due) Tj ET
 BT /F2 13 Tf 1 0 0 1 491.65 389 Tm ($7,800.00) Tj ET
 0.45 g
-BT /F1 8 Tf 1 0 0 1 56 92 Tm (Remit to First Republic - account ending 3308, routing ending 5514.) Tj ET
+BT /F1 8 Tf 1 0 0 1 56 92 Tm (Remit to undefined - account ending undefined, routing ending undefined.) Tj ET
 BT /F1 8 Tf 1 0 0 1 56 80 Tm (Placeholder document generated for the Bill Pay demo. Not a real invoice.) Tj ET
 endstream
 endobj
@@ -89,10 +87,10 @@ xref
 0000000058 00000 n 
 0000000115 00000 n 
 0000000251 00000 n 
-0000002759 00000 n 
-0000002829 00000 n 
+0000002650 00000 n 
+0000002720 00000 n 
 trailer
 << /Size 7 /Root 1 0 R >>
 startxref
-2904
+2795
 %%EOF

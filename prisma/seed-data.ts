@@ -132,19 +132,28 @@ export const GL_ACCOUNTS: SeedGlAccount[] = [
 // Vendors
 // ---------------------------------------------------------------------------
 
+/**
+ * A seeded supplier.
+ *
+ * The remittance address and the bank details are OPTIONAL, because a vendor
+ * that has not finished onboarding is a real state the product models: each
+ * payment rail requires its own fields, and `missingVendorPaymentDetails`
+ * refuses the rails whose fields are absent. One seeded vendor is deliberately
+ * left incomplete so that rule is demonstrable rather than merely implemented.
+ */
 export interface SeedVendor {
   key: string;
   name: string;
   email: string;
-  addressLine1: string;
+  addressLine1?: string;
   addressLine2?: string;
-  city: string;
-  state: string;
-  postalCode: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
   country?: string;
-  bankName: string;
-  accountLast4: string;
-  routingLast4: string;
+  bankName?: string;
+  accountLast4?: string;
+  routingLast4?: string;
   defaultPaymentTerms: PaymentTerms;
   defaultGlCode: string;
   taxId?: string;
@@ -382,16 +391,17 @@ export const VENDORS: SeedVendor[] = [
     is1099: true,
   },
   {
+    // The one vendor that CANNOT be paid yet, on purpose.
+    //
+    // `missingVendorPaymentDetails` blocks a rail whose details are absent, and
+    // with every seeded vendor fully onboarded that rule was correct, enforced
+    // and permanently invisible. Bellweather has no bank details (so ACH and
+    // wire are blocked) and no remittance address (so is a check), leaving only
+    // the virtual card — which is exactly the conversation the rule exists to
+    // start. Its APPROVED bill below is the reviewer's way in.
     key: "bellweather",
     name: "Bellweather Design Studio",
     email: "studio@bellweather.example",
-    addressLine1: "18 Abbot Kinney Blvd",
-    city: "Venice",
-    state: "CA",
-    postalCode: "90291",
-    bankName: "First Republic",
-    accountLast4: "3308",
-    routingLast4: "5514",
     defaultPaymentTerms: "DUE_ON_RECEIPT",
     defaultGlCode: "6300",
     taxId: "88-2019447",
@@ -743,6 +753,22 @@ export const BILLS: SeedBill[] = [
       ["Amazon EC2 — production", 1, 7980.1, "6110", "Engineering"],
       ["Amazon RDS — Aurora cluster", 1, 2960.5, "6110", "Engineering"],
       ["CloudFront", 1, 1999.4, "6110", "Engineering"],
+    ],
+  },
+  {
+    // Approved and payable in principle, but the vendor has no bank details and
+    // no remittance address — so scheduling refuses ACH, wire and check by
+    // name, and only the virtual card is left. This is the one bill in the
+    // dataset that exercises `missingVendorPaymentDetails` end to end.
+    key: "appr_bellweather",
+    vendorKey: "bellweather",
+    billNumber: "BWD-0295",
+    status: "APPROVED",
+    terms: "DUE_ON_RECEIPT",
+    dueInDays: 5,
+    lines: [
+      ["Website redesign — phase 2", 1, 3400, "6300", "Marketing"],
+      ["Illustration set — 6 pieces", 6, 275, "6300", "Marketing"],
     ],
   },
   {

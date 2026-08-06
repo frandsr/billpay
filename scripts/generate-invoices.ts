@@ -166,15 +166,19 @@ function renderInvoice(bill: (typeof COMPUTED_BILLS)[number]): Buffer {
   page.gray(0);
   page.text(left, PAGE_HEIGHT - 60, 18, "F2", vendor.name);
   page.gray(0.35);
-  page.text(left, PAGE_HEIGHT - 78, 9, "F1", vendor.addressLine1);
-  page.text(
-    left,
-    PAGE_HEIGHT - 90,
-    9,
-    "F1",
-    `${vendor.city}, ${vendor.state} ${vendor.postalCode}`,
-  );
-  page.text(left, PAGE_HEIGHT - 102, 9, "F1", vendor.email);
+  // A vendor may legitimately have no remittance address — that is what makes
+  // the check rail unusable for it — so the letterhead collapses to the lines
+  // it actually has rather than printing "undefined, undefined undefined".
+  const cityLine = [vendor.city, vendor.state].filter(Boolean).join(", ");
+  const addressLines = [
+    vendor.addressLine1,
+    [cityLine, vendor.postalCode].filter(Boolean).join(" "),
+    vendor.email,
+  ].filter((line): line is string => typeof line === "string" && line.trim() !== "");
+
+  addressLines.forEach((line, index) => {
+    page.text(left, PAGE_HEIGHT - 78 - index * 12, 9, "F1", line);
+  });
 
   page.gray(0);
   page.textRight(right, PAGE_HEIGHT - 60, 22, "F2", "INVOICE");
