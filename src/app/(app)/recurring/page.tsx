@@ -6,9 +6,8 @@ import { RecurringList } from "@/components/recurring/recurring-list";
 export const metadata: Metadata = { title: "Recurring bills" };
 
 /**
- * Recurring bill templates. Shell only — `<RecurringList/>` is owned by
- * vertical E and reads its own data, so this page never needs to change as the
- * feature lands.
+ * Recurring bill templates. Shell only — `<RecurringList/>` reads its own data
+ * server-side and owns the stats, the due callout and the generate actions.
  */
 export default function RecurringPage() {
   return (
