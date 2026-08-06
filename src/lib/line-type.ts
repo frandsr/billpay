@@ -76,6 +76,25 @@ export function normaliseLineType(value: unknown): LineType {
   return isLineType(value) ? value : "EXPENSE";
 }
 
+/**
+ * Parse the Type a form submitted for one line: the member itself, or `null`
+ * when the value is not one this app has.
+ *
+ * Blank is NOT a failure — it is the default. A row nobody touched, or a client
+ * that never rendered the control, means ordinary spend, and EXPENSE is exactly
+ * what `normaliseLineType` falls back to. Anything else non-blank is a client
+ * sending a type we do not recognise, and coercing that to EXPENSE would file
+ * something the sender called inventory as spend without ever saying so. That
+ * case comes back `null` so the caller can reject the submission instead.
+ */
+export function parseLineTypeInput(value: unknown): LineType | null {
+  const raw = typeof value === "string" ? value.trim() : value;
+  if (raw === "" || raw === null || raw === undefined) {
+    return normaliseLineType(raw);
+  }
+  return isLineType(raw) ? raw : null;
+}
+
 export function lineTypeLabel(value: unknown): string {
   return LINE_TYPE_LABELS[normaliseLineType(value)];
 }

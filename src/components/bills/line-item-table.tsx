@@ -19,10 +19,8 @@ import {
   Check,
   ChevronDown,
   ListPlus,
-  Package,
   Pencil,
   Plus,
-  Receipt,
   Scale,
   Trash2,
   X,
@@ -33,6 +31,7 @@ import type { GlAccount } from "@prisma/client";
 import { LineItemSplits } from "@/components/bills/line-item-splits";
 import { EmptyState } from "@/components/common/empty-state";
 import { LineTypeBadge } from "@/components/common/line-type-badge";
+import { LineTypeSelect } from "@/components/common/line-type-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -47,9 +46,7 @@ import {
 } from "@/components/ui/select";
 import { BILL_STATUS_META } from "@/lib/bill-status";
 import {
-  LINE_TYPES,
   LINE_TYPE_HINT,
-  LINE_TYPE_META,
   normaliseLineType,
   summariseLineTypes,
   type LineType,
@@ -76,11 +73,6 @@ export interface LineItemTableProps {
 const NO_GL_ACCOUNT = "__none__";
 
 /** A second, non-colour cue for the axis — colour alone is not a label. */
-const LINE_TYPE_ICONS: Record<LineType, typeof Receipt> = {
-  EXPENSE: Receipt,
-  ITEM: Package,
-};
-
 export function LineItemTable({
   bill,
   glAccounts,
@@ -560,29 +552,12 @@ function LineForm({
 
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="line-type">Type</Label>
-          <Select
+          <LineTypeSelect
+            id="line-type"
             value={lineType}
-            onValueChange={(value) => setLineType(normaliseLineType(value))}
-          >
-            <SelectTrigger
-              id="line-type"
-              className="w-full"
-              aria-describedby="line-type-hint"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LINE_TYPES.map((type) => {
-                const Icon = LINE_TYPE_ICONS[type];
-                return (
-                  <SelectItem key={type} value={type}>
-                    <Icon className="size-3.5" />
-                    {LINE_TYPE_META[type].label}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+            onChange={setLineType}
+            aria-describedby="line-type-hint"
+          />
         </div>
 
         {/* Full width so the one sentence that explains the axis reads as a

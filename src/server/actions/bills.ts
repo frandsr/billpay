@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
 import { dueDateFrom, fromDateInputValue, todayUtc } from "@/lib/dates";
 import { PAYMENT_TERMS, type PaymentTerms } from "@/lib/domain";
+import { parseLineTypeInput, type LineType } from "@/lib/line-type";
 import { lineAmountCents, parseAmountToCents } from "@/lib/money";
 
 /**
@@ -35,6 +36,7 @@ export interface CreateBillFormState {
 
 interface ParsedLineItem {
   description: string;
+  lineType: LineType;
   quantity: number;
   unitPriceCents: number;
   amountCents: number;
@@ -114,6 +116,7 @@ export async function createBillAction(
   // -- Line items -----------------------------------------------------------
 
   const descriptions = textList(formData, "lineDescription");
+  const lineTypes = textList(formData, "lineType");
   const quantities = textList(formData, "lineQuantity");
   const unitPrices = textList(formData, "lineUnitPrice");
   const glAccountIds = textList(formData, "lineGlAccountId");
@@ -135,6 +138,15 @@ export async function createBillAction(
       department === "";
     if (isEmptyRow) continue;
 
+    // Never trusted from the client. A missing value is the EXPENSE default,
+    // but a value that is not a member at all is rejected rather than quietly
+    // coerced — the two types sync differently, so guessing is not neutral.
+    const lineType = parseLineTypeInput(lineTypes[index]);
+    if (lineType === null) {
+      fieldErrors[`line.${index}.lineType`] = "Choose Expense or Item.";
+      continue;
+    }
+
     const quantity = quantityInput === "" ? 1 : Number.parseInt(quantityInput, 10);
     if (!Number.isInteger(quantity) || quantity < 1) {
       fieldErrors[`line.${index}.quantity`] = "Quantity must be a whole number of 1 or more.";
@@ -150,6 +162,7 @@ export async function createBillAction(
 
     lineItems.push({
       description,
+      lineType,
       quantity,
       // The line amount is quantity x unit price, computed once by the domain
       // helper so the form, the server and the seed all round identically.
@@ -221,6 +234,7 @@ export async function createBillAction(
           lineItems: {
             create: lineItems.map((line) => ({
               description: line.description,
+              lineType: line.lineType,
               quantity: line.quantity,
               unitPriceCents: line.unitPriceCents,
               amountCents: line.amountCents,

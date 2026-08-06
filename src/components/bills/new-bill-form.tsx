@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { LineTypeSelect } from "@/components/common/line-type-select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ import {
   toDateInputValue,
 } from "@/lib/dates";
 import { PAYMENT_TERMS, type PaymentTerms } from "@/lib/domain";
+import { LINE_TYPE_HINT, type LineType } from "@/lib/line-type";
 import {
   formatCents,
   lineAmountCents,
@@ -93,6 +95,7 @@ const INITIAL_STATE: CreateBillFormState = { status: "idle" };
 interface DraftLine {
   key: string;
   description: string;
+  lineType: LineType;
   quantity: string;
   unitPrice: string;
   glAccountId: string;
@@ -103,6 +106,9 @@ function emptyLine(key: string): DraftLine {
   return {
     key,
     description: "",
+    // EXPENSE is the overwhelmingly common case, so a services invoice is typed
+    // straight through without anyone touching this column.
+    lineType: "EXPENSE",
     quantity: "1",
     unitPrice: "",
     glAccountId: "",
@@ -401,12 +407,17 @@ export function NewBillForm({
 
         <CardContent className="space-y-3">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[48rem] border-separate border-spacing-y-1 text-sm">
+            <table className="w-full min-w-[56rem] border-separate border-spacing-y-1 text-sm">
               <thead>
                 <tr className="text-muted-foreground text-xs">
-                  <th className="w-[30%] px-1 pb-1 text-left font-medium">
+                  <th className="w-[26%] px-1 pb-1 text-left font-medium">
                     Description
                   </th>
+                  {/* Beside the description, where the detail page shows the
+                      same distinction as a badge. Wide enough for the longer
+                      label and its icon, and no wider — the row keeps the
+                      standard h-8 control height, so nothing grows downwards. */}
+                  <th className="w-32 px-1 pb-1 text-left font-medium">Type</th>
                   <th className="w-16 px-1 pb-1 text-right font-medium">Qty</th>
                   <th className="w-28 px-1 pb-1 text-right font-medium">
                     Unit price
@@ -433,6 +444,23 @@ export function NewBillForm({
                         name="lineDescription"
                         placeholder="Annual subscription"
                         aria-label={`Line ${index + 1} description`}
+                      />
+                    </td>
+                    <td className="px-1">
+                      <LineTypeSelect
+                        value={line.lineType}
+                        onChange={(value) =>
+                          updateLine(line.key, { lineType: value })
+                        }
+                        aria-label={`Line ${index + 1} type`}
+                        aria-describedby="line-type-hint"
+                      />
+                      {/* Radix Select is not a form control, so the value rides
+                          along in a hidden input like the GL account does. */}
+                      <input
+                        type="hidden"
+                        name="lineType"
+                        value={line.lineType}
                       />
                     </td>
                     <td className="px-1">
@@ -527,6 +555,14 @@ export function NewBillForm({
               </tbody>
             </table>
           </div>
+
+          {/* A footnote to the Type column, in the detail editor's exact words.
+              It sits under the table rather than in the card description so it
+              stays behind the split hint and the reconciliation notice — the
+              two things this form actually needs someone to read. */}
+          <p id="line-type-hint" className="text-muted-foreground text-xs">
+            {LINE_TYPE_HINT}
+          </p>
 
           <Button type="button" variant="outline" size="sm" onClick={addLine}>
             <Plus data-icon="inline-start" />

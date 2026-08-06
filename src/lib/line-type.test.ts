@@ -9,6 +9,7 @@ import {
   lineTypeLabel,
   lineTypeMeta,
   normaliseLineType,
+  parseLineTypeInput,
   summariseLineTypes,
 } from "@/lib/line-type";
 
@@ -78,6 +79,43 @@ describe("normaliseLineType", () => {
     expect(lineTypeLabel("nonsense")).toBe("Expense");
     expect(lineTypeMeta("ITEM")).toBe(LINE_TYPE_META.ITEM);
     expect(lineTypeMeta(null)).toBe(LINE_TYPE_META.EXPENSE);
+  });
+});
+
+/**
+ * What the create-bill action runs every submitted row through. The two rules
+ * it encodes are opposites on purpose: a blank Type is the default and must
+ * never block a save, while a Type this app does not have must never be saved
+ * as something else.
+ */
+describe("parseLineTypeInput", () => {
+  it.each([...LINE_TYPES])("returns %s unchanged", (type) => {
+    expect(parseLineTypeInput(type)).toBe(type);
+  });
+
+  it("reads a blank or absent value as EXPENSE, not as an error", () => {
+    expect(parseLineTypeInput("")).toBe("EXPENSE");
+    expect(parseLineTypeInput("   ")).toBe("EXPENSE");
+    expect(parseLineTypeInput(undefined)).toBe("EXPENSE");
+    expect(parseLineTypeInput(null)).toBe("EXPENSE");
+  });
+
+  it("ignores whitespace around a real value", () => {
+    expect(parseLineTypeInput(" ITEM ")).toBe("ITEM");
+  });
+
+  it("rejects a type this app does not have rather than filing it as spend", () => {
+    expect(parseLineTypeInput("SERVICE")).toBeNull();
+    expect(parseLineTypeInput("item")).toBeNull();
+    expect(parseLineTypeInput(7)).toBeNull();
+    expect(parseLineTypeInput({ lineType: "ITEM" })).toBeNull();
+  });
+
+  it("is stricter than normaliseLineType exactly where the client is involved", () => {
+    // Reading a row back from the database coerces; accepting one from a form
+    // refuses. Same fallback for blank, opposite answer for nonsense.
+    expect(normaliseLineType("SERVICE")).toBe("EXPENSE");
+    expect(parseLineTypeInput("SERVICE")).toBeNull();
   });
 });
 
