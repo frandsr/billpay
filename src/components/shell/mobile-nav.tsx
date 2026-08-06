@@ -13,11 +13,12 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { NAV_ITEMS } from "@/components/shell/nav-items";
+import { NAV_ITEMS, activeNavHref } from "@/components/shell/nav-items";
 import { cn } from "@/lib/utils";
 
 export function MobileNav() {
   const pathname = usePathname();
+  const currentHref = activeNavHref(pathname);
   const [open, setOpen] = useState(false);
 
   return (
@@ -38,8 +39,7 @@ export function MobileNav() {
         </SheetHeader>
         <nav className="space-y-0.5 p-2" aria-label="Primary">
           {NAV_ITEMS.map((item) => {
-            const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = currentHref === item.href;
             const Icon = item.icon;
             return (
               <Link

@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Wallet } from "lucide-react";
 
-import { NAV_ITEMS } from "@/components/shell/nav-items";
+import { NAV_ITEMS, activeNavHref } from "@/components/shell/nav-items";
 import { cn } from "@/lib/utils";
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const currentHref = activeNavHref(pathname);
 
   return (
     <aside className="bg-sidebar text-sidebar-foreground hidden w-60 shrink-0 flex-col border-r md:flex">
@@ -24,8 +25,7 @@ export function AppSidebar() {
 
       <nav className="flex-1 space-y-0.5 p-2" aria-label="Primary">
         {NAV_ITEMS.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const active = currentHref === item.href;
           const Icon = item.icon;
 
           return (

@@ -2,7 +2,8 @@ import {
   Building2,
   LayoutDashboard,
   ReceiptText,
-  Timer,
+  Repeat,
+  Upload,
   type LucideIcon,
 } from "lucide-react";
 
@@ -28,15 +29,42 @@ export const NAV_ITEMS: NavItem[] = [
     description: "The accounts payable inbox",
   },
   {
+    href: "/bills/import",
+    label: "Import",
+    icon: Upload,
+    description: "Bring bills in from a CSV or a scanned invoice",
+  },
+  {
+    href: "/recurring",
+    label: "Recurring",
+    icon: Repeat,
+    description: "Templates that generate bills on a schedule",
+  },
+  {
     href: "/vendors",
     label: "Vendors",
     icon: Building2,
     description: "Suppliers and payment details",
   },
-  {
-    href: "/aging",
-    label: "AP Aging",
-    icon: Timer,
-    description: "Outstanding balance by age",
-  },
 ];
+
+/**
+ * The nav entry that should read as active, or `null` when none does.
+ *
+ * Longest match wins, so `/bills/import` highlights **Import** rather than
+ * lighting up both it and its parent **Bills** — a plain `startsWith` check
+ * marks two entries active as soon as one route nests inside another.
+ */
+export function activeNavHref(pathname: string): string | null {
+  let best: string | null = null;
+
+  for (const item of NAV_ITEMS) {
+    const matches =
+      pathname === item.href || pathname.startsWith(`${item.href}/`);
+    if (matches && (best === null || item.href.length > best.length)) {
+      best = item.href;
+    }
+  }
+
+  return best;
+}
