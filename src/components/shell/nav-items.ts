@@ -1,10 +1,10 @@
 import {
   Banknote,
   Building2,
+  FilePlus,
   LayoutDashboard,
   ReceiptText,
   Repeat,
-  Upload,
   type LucideIcon,
 } from "lucide-react";
 
@@ -13,6 +13,15 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   description: string;
+  /**
+   * Routes that belong to this entry but do not sit under its `href`.
+   *
+   * The ingestion channels are siblings of the hub that lists them —
+   * `/bills/upload` is not nested under `/bills/add` — so without this the
+   * sidebar would fall back to **Bills** the moment you picked a channel, and
+   * you would lose the trail back to the other ways in.
+   */
+  alsoActiveFor?: string[];
 }
 
 /** Primary navigation. Keep the order — it matches the AP workflow. */
@@ -36,10 +45,11 @@ export const NAV_ITEMS: NavItem[] = [
     description: "Money leaving the bank, by status and date",
   },
   {
-    href: "/bills/import",
-    label: "Import",
-    icon: Upload,
-    description: "Bring bills in from a CSV or a scanned invoice",
+    href: "/bills/add",
+    label: "Add bills",
+    icon: FilePlus,
+    description: "Every way a bill gets in: an invoice, a spreadsheet, or by hand",
+    alsoActiveFor: ["/bills/upload", "/bills/import"],
   },
   {
     href: "/recurring",
@@ -58,18 +68,23 @@ export const NAV_ITEMS: NavItem[] = [
 /**
  * The nav entry that should read as active, or `null` when none does.
  *
- * Longest match wins, so `/bills/import` highlights **Import** rather than
- * lighting up both it and its parent **Bills** — a plain `startsWith` check
- * marks two entries active as soon as one route nests inside another.
+ * Longest match wins, so `/bills/import` highlights **Add bills** rather than
+ * lighting up both it and **Bills** — a plain `startsWith` check marks two
+ * entries active as soon as one route nests inside another. The comparison is
+ * on the matched route, not on the entry's `href`, so a route claimed through
+ * `alsoActiveFor` still beats the shorter parent it happens to sit under.
  */
 export function activeNavHref(pathname: string): string | null {
   let best: string | null = null;
+  let bestLength = -1;
 
   for (const item of NAV_ITEMS) {
-    const matches =
-      pathname === item.href || pathname.startsWith(`${item.href}/`);
-    if (matches && (best === null || item.href.length > best.length)) {
-      best = item.href;
+    for (const route of [item.href, ...(item.alsoActiveFor ?? [])]) {
+      const matches = pathname === route || pathname.startsWith(`${route}/`);
+      if (matches && route.length > bestLength) {
+        best = item.href;
+        bestLength = route.length;
+      }
     }
   }
 
