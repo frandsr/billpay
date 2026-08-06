@@ -67,8 +67,10 @@ six new tables, and **no change to an existing column**.
    a `Payment` in status `SCHEDULED`. The relation is already 1:N, so partial
    payments are additive.
 3. **`Missing info` / `Ready` are derived, never stored.** They are computed by
-   `draftReadinessDetail()` from the bill and its line items. Storing them would
-   create a cache to invalidate on every edit.
+   `draftReadinessDetail()` from the bill, its line items **and their splits** —
+   a line coded entirely by splits that reconcile is coded, so readiness has to
+   look one level deeper than the line. Storing the flag would create a cache to
+   invalidate on every edit.
 4. **Σ(splits) equals the line amount, exactly.** A line with no splits is coded
    by its own `glAccountId`; a line with splits is coded by the splits, and they
    must add up to the cent. Percentages are stored as **basis points**
@@ -151,7 +153,9 @@ generator simply creates DRAFT bills on a schedule.
 
 ### OCR / CSV ingestion — SHIPPED (ADR 0008); email deferred
 
-`Bill.source` was already a `BillSource` enum with `MANUAL | OCR | CSV | EMAIL`,
+`Bill.source` was already a `BillSource` enum with `MANUAL | OCR | CSV | EMAIL`
+(`RECURRING` was added later, as the one-line additive migration ADR 0005
+predicts, so a generated bill records the channel it arrived by),
 and `invoiceFileUrl` / `invoiceFileName` already held the document, so neither
 ingestion path needed a `Bill` column.
 
@@ -203,7 +207,7 @@ adding a status to the schema and forgetting the core fails `pnpm typecheck`.
 
 | Module | Exports |
 | --- | --- |
-| `src/lib/domain.ts` | `BillStatus`, `PaymentStatus`, `PaymentMethod`, `PaymentTerms`, `ApprovalStepStatus`, `RecurringFrequency` + the matching `BILL_STATUSES`-style const arrays |
+| `src/lib/domain.ts` | `BillStatus`, `BillSource`, `PaymentStatus`, `PaymentMethod`, `PaymentTerms`, `ApprovalStepStatus`, `RecurringFrequency`, `UserRole` + the matching `BILL_STATUSES`-style const arrays |
 | `src/lib/db.ts` | `db` / `prisma` — Prisma client singleton |
 | `src/lib/money.ts` | `formatCents`, `parseAmountToCents`, `sumCents`, `lineAmountCents`, `dollars`, `minorUnitDigits` |
 | `src/lib/dates.ts` | `dueDateFrom`, `daysOverdue`, `daysUntilDue`, `isOverdue`, `agingBucket`, `AGING_BUCKETS`, `AGING_BUCKET_LABELS`, `PAYMENT_TERMS_DAYS`, `PAYMENT_TERMS_LABELS`, `formatDate`, `formatShortDate`, `formatDateTime`, `formatDueDistance`, `formatRelativeTime`, `toDateInputValue`, `fromDateInputValue`, `todayUtc` |
@@ -211,9 +215,16 @@ adding a status to the schema and forgetting the core fails `pnpm typecheck`.
 | `src/lib/approval-policy.ts` | `resolveApprovalPolicy`, `resolveApproverChain`, `approvalProgress` |
 | `src/lib/splits.ts` | `BASIS_POINTS_TOTAL`, `distributeByBasisPoints`, `applyAllocationTemplate`, `splitsReconcile`, `validateSplits`, `splitsAreValid`, `sumSplitCents`, `basisPointsOf`, `formatBasisPoints` + types `SplitLike`, `DraftSplit`, `AllocationRowLike`, `SplitReconciliation`, `SplitIssue`, `SplitIssueCode` |
 | `src/lib/recurring.ts` | `nextOccurrence`, `dueOccurrences`, `nextRunDateAfter`, `upcomingOccurrences`, `isDue`, `daysInUtcMonth`, `RECURRING_FREQUENCY_MONTHS`, `RECURRING_FREQUENCY_LABELS` + type `RecurringSchedule` |
+| `src/lib/approval-chain.ts` | `currentPendingStep`, `isChainComplete`, `refuseDecision`, `canDecideCurrentStep`, `APPROVAL_STEP_STATUS_LABELS` |
+| `src/lib/payment-lifecycle.ts` | `PAYMENT_TRANSITIONS`, `canTransitionPayment`, `assertPaymentTransition`, `InvalidPaymentTransitionError`, `isPaymentSettled`, `missingVendorPaymentDetails`, `availablePaymentMethods`, `paymentReference`, `PAYMENT_METHOD_LABELS`, `PAYMENT_METHOD_HINTS` |
+| `src/lib/permissions.ts` | `refusePaymentExecution`, `canExecutePayments`, `refuseBillReopen`, `canReopenBill`, `describeRoles`, `PAYMENT_EXECUTION_ROLES`, `BILL_REOPEN_ROLES`, `USER_ROLE_LABELS` |
+| `src/lib/outstanding.ts` | `OUTSTANDING_STATUSES`, `UNPAID_INCLUDING_DRAFTS_STATUSES`, `DUE_DATE_RELEVANT_STATUSES`, `isOutstanding`, `isUnpaidIncludingDrafts` |
+| `src/lib/action-result.ts` | `ActionResult` — the `{ ok, message }` a Server Action returns |
+| `src/lib/uploads.ts` | `MAX_INVOICE_UPLOAD_BYTES`, `MAX_CSV_UPLOAD_BYTES`, `SERVER_ACTION_BODY_LIMIT_BYTES`, `formatBytes` |
 | `src/lib/current-user.ts` | `getCurrentUser()`, `listDemoUsers()`, `setCurrentUser(userId)` *(server action)* |
 | `src/server/bill-detail.ts` | `getBillDetail(id)`, `billDetailInclude`, types `BillDetail`, `BillDetailLineItem`, `BillDetailSplit`, `BillDetailApprovalStep`, `BillDetailPayment`, `BillDetailActivity`, `BillDetailOcrExtraction` |
 | `src/server/reference-data.ts` | `getActiveGlAccounts()`, `getActiveVendors()`, `getApprovalPolicies()` |
+| `src/server/queries/recurring.ts` | `listRecurringTemplates()`, `getRecurringTemplate(id)`, `getRecurringTemplateForForm(id)`, `toFormInput(template)` |
 | `src/server/schema-parity.ts` | *(nothing at runtime)* — compile-time assertions that `@/lib/domain` matches the Prisma enums |
 
 Shared UI primitives, same rule:
@@ -230,6 +241,14 @@ Shared UI primitives, same rule:
 ---
 
 ## 5. Ownership map — who edits what
+
+> **Historical.** This map governed the parallel build. That phase is
+> complete and merged; a consolidation pass afterwards moved the pure domain
+> modules the map had stranded in component directories into the functional
+> core — `approval-chain.ts` and `payment-lifecycle.ts` to `src/lib/`, the
+> recurring reads to `src/server/queries/recurring.ts` — and gave the twice
+> declared `ActionResult` a single home. The table is kept as the record of
+> how the work was partitioned, not as a live constraint.
 
 **This table is authoritative for file ownership.** It reflects the scope of
 ADR 0008: invoice OCR, CSV import, line-item splits and recurring bills are in;
@@ -453,8 +472,8 @@ templates stay populated whenever the reviewer runs it.
 | gl_accounts | 17 |
 | vendors | 16 |
 | approval_policies / steps | 3 / 3 |
-| bills | 45 (8 draft, 10 awaiting approval, 7 approved, 14 paid, 3 rejected, 3 archived) |
-| line_items | 82 |
+| bills | 46 (8 draft, 10 awaiting approval, 8 approved, 14 paid, 3 rejected, 3 archived) |
+| line_items | 84 |
 | line_item_splits | 16, across 6 lines |
 | allocation_templates / splits | 2 / 5 |
 | recurring_bills / line_items | 4 / 7 |
@@ -484,6 +503,11 @@ Deliberate demo hooks:
   insurance) are **already due**, so "generate now" produces a draft on the
   reviewer's first click. One is upcoming (`Figma`) and one is paused
   (`Sparkle City`).
+- `Bellweather Design Studio` is deliberately **not fully onboarded**: no bank
+  details and no remittance address, so ACH, wire and check each refuse by name
+  and only the virtual card is left. Its approved bill `BWD-0295` ($5,050) is
+  how a reviewer reaches `missingVendorPaymentDetails` — a rule that was
+  otherwise correct, enforced and impossible to see.
 - The OCR-mismatch draft `IPS-3391` ships with a stored `OcrExtraction`: the
   extractor read a $6,890 total but only $6,240 of lines, with per-field
   confidences and its own warnings — so the OCR review UI has a real
