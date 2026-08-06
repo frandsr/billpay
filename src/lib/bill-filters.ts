@@ -19,10 +19,15 @@ import { parseAmountToCents } from "@/lib/money";
 // Tabs — the workload partition
 // ---------------------------------------------------------------------------
 
+/**
+ * The tab bar is the workflow, in order: code it, get it approved, pay it —
+ * with a visible detour when an approver sends one back.
+ */
 export const INBOX_TABS = [
   "drafts",
   "awaiting",
   "approved",
+  "rejected",
   "history",
   "all",
 ] as const;
@@ -39,8 +44,16 @@ export interface InboxTabMeta {
 }
 
 /**
- * History deliberately groups PAID, REJECTED and ARCHIVED: they are the three
- * ways a bill leaves the working queue, and none of them needs daily attention.
+ * History groups PAID and ARCHIVED: the two ways a bill leaves the working
+ * queue for good, neither of which needs daily attention.
+ *
+ * REJECTED is deliberately NOT among them. A rejected bill is not finished —
+ * it bounced back, and `REJECTED → DRAFT` is a legal transition in
+ * `bill-status.ts`, so somebody still has to fix it and resubmit. Filing it
+ * under History hid actionable work among things that need nothing. Anyone who
+ * genuinely wants rejected bills alongside paid ones still has the status
+ * filter; that is what it is for, and it keeps the tab bar describing the
+ * process rather than duplicating the filter.
  */
 export const INBOX_TAB_META: Record<InboxTab, InboxTabMeta> = {
   drafts: {
@@ -62,12 +75,19 @@ export const INBOX_TAB_META: Record<InboxTab, InboxTabMeta> = {
     emptyTitle: "No approved bills",
     emptyDescription: "Approved bills are eligible to have a payment scheduled.",
   },
+  rejected: {
+    label: "Rejected",
+    statuses: ["REJECTED"],
+    emptyTitle: "Nothing was sent back",
+    emptyDescription:
+      "Bills an approver rejects land here so they can be corrected and resubmitted. An empty tab is good news.",
+  },
   history: {
     label: "History",
-    statuses: ["PAID", "REJECTED", "ARCHIVED"],
+    statuses: ["PAID", "ARCHIVED"],
     emptyTitle: "No history yet",
     emptyDescription:
-      "Paid, rejected and archived bills are kept here — archiving is not deleting.",
+      "Paid and archived bills are kept here — archiving is not deleting.",
   },
   all: {
     label: "All",
