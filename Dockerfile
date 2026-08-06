@@ -56,6 +56,11 @@ RUN pnpm exec next build
 FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Both are read by the Next.js standalone `server.js`. They are DEFAULTS: a
+# platform that injects its own PORT at runtime (Railway does) overrides the
+# image value, which is exactly what we want. HOSTNAME must be 0.0.0.0 — Docker
+# otherwise injects the container id as HOSTNAME and the server would bind to a
+# name nothing outside the container can reach.
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
