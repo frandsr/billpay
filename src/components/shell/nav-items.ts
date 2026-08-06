@@ -1,4 +1,5 @@
 import {
+  Banknote,
   Building2,
   LayoutDashboard,
   ReceiptText,
@@ -27,6 +28,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Bills",
     icon: ReceiptText,
     description: "The accounts payable inbox",
+  },
+  {
+    href: "/payments",
+    label: "Payments",
+    icon: Banknote,
+    description: "Money leaving the bank, by status and date",
   },
   {
     href: "/bills/import",
