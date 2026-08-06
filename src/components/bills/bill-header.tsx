@@ -16,11 +16,13 @@
  */
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
   Lock,
   Pencil,
+  Repeat,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -55,6 +57,7 @@ import {
 } from "@/lib/dates";
 import { PAYMENT_TERMS } from "@/lib/domain";
 import { formatCents } from "@/lib/money";
+import { DUE_DATE_RELEVANT_STATUSES } from "@/lib/outstanding";
 import { cn } from "@/lib/utils";
 import { updateBillHeader } from "@/server/actions/bill-edit";
 import type { BillDetail } from "@/server/bill-detail";
@@ -72,10 +75,9 @@ const SOURCE_LABELS: Record<string, string> = {
   OCR: "scanned from the invoice",
   CSV: "imported from CSV",
   EMAIL: "forwarded by email",
+  RECURRING: "created on a schedule",
 };
 
-/** Statuses whose due date still matters — a paid bill is not "overdue". */
-const OUTSTANDING_STATUSES = ["DRAFT", "AWAITING_APPROVAL", "APPROVED", "REJECTED"];
 
 export function BillHeader({ bill, currentUser }: BillHeaderProps) {
   const [editing, setEditing] = useState(false);
@@ -84,7 +86,7 @@ export function BillHeader({ bill, currentUser }: BillHeaderProps) {
   const readiness = draftReadinessDetail(bill);
   const editable = bill.status === "DRAFT" || bill.status === "REJECTED";
   const overdue = daysOverdue(bill.dueDate);
-  const showOverdue = overdue > 0 && OUTSTANDING_STATUSES.includes(bill.status);
+  const showOverdue = overdue > 0 && DUE_DATE_RELEVANT_STATUSES.includes(bill.status);
 
   const creator =
     bill.createdById === currentUser.id ? "you" : bill.createdBy.name;
@@ -115,8 +117,20 @@ export function BillHeader({ bill, currentUser }: BillHeaderProps) {
                 {bill.billNumber}
               </span>{" "}
               · {SOURCE_LABELS[bill.source] ?? "entered manually"} by {creator}
+              {/* Provenance the bill already carried but never showed: the
+                  template that generated it, linked so the reviewer can go
+                  read the schedule that will produce the next one. */}
               {bill.recurringBill ? (
-                <> · generated from “{bill.recurringBill.name}”</>
+                <>
+                  {" · "}
+                  <Link
+                    href={`/recurring/${bill.recurringBill.id}`}
+                    className="hover:text-foreground underline decoration-dotted underline-offset-4"
+                  >
+                    <Repeat className="mr-1 inline size-3 align-[-0.1em]" aria-hidden />
+                    Generated from “{bill.recurringBill.name}”
+                  </Link>
+                </>
               ) : null}
             </p>
           </div>

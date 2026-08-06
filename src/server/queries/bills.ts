@@ -13,6 +13,7 @@ import { draftReadinessDetail, type DraftReadiness } from "@/lib/bill-status";
 import { fromDateInputValue, todayUtc } from "@/lib/dates";
 import type { BillStatus, PaymentTerms } from "@/lib/domain";
 import { db } from "@/lib/db";
+import { UNPAID_INCLUDING_DRAFTS_STATUSES } from "@/lib/outstanding";
 
 /**
  * Reads for the bills inbox and the manual-creation form.
@@ -65,12 +66,16 @@ export type InboxBill = Prisma.BillGetPayload<{
   select: typeof inboxBillSelect;
 }>;
 
-/** Statuses that still owe money, i.e. the ones an aging figure applies to. */
-export const OUTSTANDING_STATUSES: readonly BillStatus[] = [
-  "DRAFT",
-  "AWAITING_APPROVAL",
-  "APPROVED",
-];
+/**
+ * Statuses the inbox's overdue counter applies to.
+ *
+ * Re-exported under the inbox's own name so existing call sites keep reading
+ * naturally, but the set itself is defined once in `@/lib/outstanding`. The
+ * inbox counts DRAFT: its question is "what unpaid row can a clerk still act
+ * on", not "what does the company owe" — the dashboard answers that one with
+ * `OUTSTANDING_STATUSES`, which excludes drafts.
+ */
+export const OUTSTANDING_STATUSES = UNPAID_INCLUDING_DRAFTS_STATUSES;
 
 export interface CurrencyTotal {
   currency: string;

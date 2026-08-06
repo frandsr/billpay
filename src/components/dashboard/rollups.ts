@@ -10,6 +10,7 @@ import {
   type AgingBucket,
 } from "@/lib/dates";
 import type { ApprovalStepStatus, BillStatus } from "@/lib/domain";
+import { OUTSTANDING_STATUSES } from "@/lib/outstanding";
 
 /**
  * The dashboard's arithmetic, as pure functions.
@@ -34,21 +35,11 @@ import type { ApprovalStepStatus, BillStatus } from "@/lib/domain";
  * What the dashboard counts as outstanding: a SUBMITTED payable that is still
  * unpaid — awaiting approval, or approved and not yet settled.
  *
- * DRAFT is excluded on purpose. A draft has not been submitted, so counting it
- * as an obligation would overstate what the company owes; drafts get their own
- * tile and their own panel, where the actionable thing is finishing them. PAID
- * is settled; REJECTED and ARCHIVED never will be.
- *
- * Deliberately a different set from `OUTSTANDING_STATUSES` in
- * `@/server/queries/bills.ts`, which folds DRAFT in because the inbox's overdue
- * counter is about *any* unpaid row on the ledger. Both are right for what they
- * measure, so the tiles say which set they used rather than leaving the reader
- * to guess.
+ * Defined once in `@/lib/outstanding` and re-exported here under the name the
+ * dashboard modules already use. DRAFT is excluded on purpose; drafts get their
+ * own tile and their own panel, where the actionable thing is finishing them.
  */
-export const OUTSTANDING_BILL_STATUSES: readonly BillStatus[] = [
-  "AWAITING_APPROVAL",
-  "APPROVED",
-] as const;
+export const OUTSTANDING_BILL_STATUSES = OUTSTANDING_STATUSES;
 
 /** Bills due within this many days count towards the "due this week" tile. */
 export const DUE_SOON_DAYS = 7;
