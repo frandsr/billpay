@@ -6,19 +6,18 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
-  CircleCheck,
   FileScan,
   FileSpreadsheet,
   Inbox,
   Mail,
   Plus,
+  Repeat,
   SearchX,
   TriangleAlert,
 } from "lucide-react";
 
 import { BillStatusBadge, DraftReadinessBadge } from "@/components/bills/bill-status-badge";
 import { BillsInboxFilters } from "@/components/bills/bills-inbox-filters";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/common/empty-state";
@@ -77,6 +76,7 @@ const SOURCE_META = {
   OCR: { label: "Scanned", icon: FileScan },
   CSV: { label: "CSV", icon: FileSpreadsheet },
   EMAIL: { label: "Emailed", icon: Mail },
+  RECURRING: { label: "Recurring", icon: Repeat },
 } as const;
 
 export async function BillsInbox({ searchParams = {} }: BillsInboxProps) {
@@ -96,26 +96,12 @@ export async function BillsInbox({ searchParams = {} }: BillsInboxProps) {
     formatDate: (value) => formatDate(`${value}T00:00:00.000Z`),
   });
 
-  const createdBillNumber =
-    typeof searchParams.created === "string" ? searchParams.created : null;
-
   const asOf = todayUtc();
   const firstRow = result.total === 0 ? 0 : (result.page - 1) * result.pageSize + 1;
   const lastRow = Math.min(result.page * result.pageSize, result.total);
 
   return (
     <div className="space-y-4">
-      {createdBillNumber ? (
-        <Alert>
-          <CircleCheck className="text-emerald-600 dark:text-emerald-400" />
-          <AlertTitle>Bill {createdBillNumber} created</AlertTitle>
-          <AlertDescription>
-            It is saved as a draft. Code the line items and submit it for
-            approval when it is ready.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
       <InboxTabs filters={filters} counts={result.tabCounts} />
 
       <BillsInboxFilters filters={filters} vendors={vendors} />
@@ -170,12 +156,7 @@ export async function BillsInbox({ searchParams = {} }: BillsInboxProps) {
             </TableHeader>
             <TableBody>
               {result.bills.map((bill) => (
-                <BillRow
-                  key={bill.id}
-                  bill={bill}
-                  asOf={asOf}
-                  highlighted={bill.billNumber === createdBillNumber}
-                />
+                <BillRow key={bill.id} bill={bill} asOf={asOf} />
               ))}
             </TableBody>
           </Table>
@@ -356,25 +337,12 @@ function SortableHead({
 // Row
 // ---------------------------------------------------------------------------
 
-function BillRow({
-  bill,
-  asOf,
-  highlighted,
-}: {
-  bill: InboxBill;
-  asOf: Date;
-  highlighted: boolean;
-}) {
+function BillRow({ bill, asOf }: { bill: InboxBill; asOf: Date }) {
   const source = bill.source === "MANUAL" ? null : SOURCE_META[bill.source];
   const SourceIcon = source?.icon;
 
   return (
-    <TableRow
-      className={cn(
-        "group relative",
-        highlighted && "bg-emerald-50/70 dark:bg-emerald-950/30",
-      )}
-    >
+    <TableRow className="group relative">
       <TableCell className="max-w-[22rem] py-2.5 pl-3">
         <Link
           href={`/bills/${bill.id}`}

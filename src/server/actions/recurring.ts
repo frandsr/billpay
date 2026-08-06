@@ -141,9 +141,9 @@ async function generateDraftsForTemplate(
           // DRAFT by design: a generated bill enters the same lifecycle as any
           // other and still needs approval and payment.
           status: "DRAFT",
-          // There is no RECURRING member on `BillSource` — `recurringBillId` is
-          // the discriminator, and adding an enum member would mean a migration.
-          source: "MANUAL",
+          // Provenance, alongside the `recurringBillId` link below: the source
+          // says how the bill arrived, the id says which template made it.
+          source: "RECURRING",
           createdById: actingUserId,
           recurringBillId: template.id,
           lineItems: {

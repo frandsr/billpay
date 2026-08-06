@@ -598,6 +598,8 @@ function sourceMessage(spec: SeedBill): string {
       return "created this bill from a CSV import";
     case "EMAIL":
       return "created this bill from a forwarded email";
+    case "RECURRING":
+      return "generated this bill from a recurring template";
     default:
       return ACTIVITY_MESSAGES.CREATED!;
   }
