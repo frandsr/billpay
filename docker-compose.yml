@@ -41,6 +41,13 @@ services:
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: 0.0.0.0
+      # Seed only when the database is empty, so `docker compose restart app`
+      # (and any redeploy) preserves whatever was created in the UI. Use
+      # `always` to force a reseed, `never` to disable it.
+      SEED_ON_START: ${SEED_ON_START:-auto}
+      # Optional: passed through from the host shell or `.env`. Unset means OCR
+      # falls back to its deterministic mock — no secret is baked into the image.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "3000:3000"
 
