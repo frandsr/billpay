@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/common/page-header";
 import {
   getRecurringTemplateForForm,
   toFormInput,
-} from "@/components/recurring/queries";
+} from "@/server/queries/recurring";
 import { RecurringForm } from "@/components/recurring/recurring-form";
 import { getActiveGlAccounts, getActiveVendors } from "@/server/reference-data";
 

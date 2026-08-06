@@ -10,9 +10,6 @@ import type { ApprovalStepStatus, BillStatus } from "@/lib/domain";
  * `refuseDecision` refuses; the server refuses it again on the way in, because
  * a hidden button is not an access control.
  *
- * It would live in `src/lib/` — that is the functional core — but this vertical
- * does not own `src/lib/**`, so it sits inside the directory it does own.
- *
  * Rule (ADR 0003): approval is SEQUENTIAL. Step n+1 becomes actionable only
  * once step n is APPROVED, and only its own named approver can decide it.
  */
@@ -140,17 +137,3 @@ export const APPROVAL_STEP_STATUS_LABELS: Record<ApprovalStepStatus, string> = {
   REJECTED: "Rejected",
 };
 
-/**
- * What every approval server action returns.
- *
- * Actions REFUSE by returning `ok: false` with a message the client can toast,
- * rather than throwing: a forged or stale request is an expected outcome of an
- * open demo app, not an exception. `src/components/payments/payment-lifecycle.ts`
- * declares the same shape for the payment actions — the two live apart only
- * because a `"use server"` module may export nothing but async functions, and
- * this vertical owns no directory both panels could share.
- */
-export interface ActionResult {
-  ok: boolean;
-  message: string;
-}

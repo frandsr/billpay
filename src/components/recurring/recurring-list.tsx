@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Plus, Repeat, TriangleAlert } from "lucide-react";
 
 import { GenerateAllDueButton } from "@/components/recurring/recurring-actions";
-import { listRecurringTemplates } from "@/components/recurring/queries";
+import { listRecurringTemplates } from "@/server/queries/recurring";
 import { TemplateCard } from "@/components/recurring/template-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { StatCard } from "@/components/common/stat-card";

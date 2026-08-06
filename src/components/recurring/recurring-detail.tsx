@@ -13,7 +13,7 @@ import {
   GenerateNowButton,
   PauseToggleButton,
 } from "@/components/recurring/recurring-actions";
-import { getRecurringTemplate } from "@/components/recurring/queries";
+import { getRecurringTemplate } from "@/server/queries/recurring";
 import { UpcomingRuns } from "@/components/recurring/upcoming-runs";
 import { EmptyState } from "@/components/common/empty-state";
 import { Badge } from "@/components/ui/badge";

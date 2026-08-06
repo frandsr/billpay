@@ -12,9 +12,8 @@ import type { PaymentMethod, PaymentStatus } from "@/lib/domain";
  * `src/server/actions/payments.ts` and `payment-panel.tsx` so the actions the
  * UI offers and the moves the server accepts come from one table.
  *
- * It mirrors `src/lib/bill-status.ts` deliberately, and would live beside it in
- * the functional core; this vertical does not own `src/lib/**`, so it lives in
- * the directory it does own.
+ * It mirrors `src/lib/bill-status.ts` deliberately and lives beside it in the
+ * functional core.
  */
 
 // ---------------------------------------------------------------------------
@@ -198,12 +197,3 @@ export function paymentReference(method: PaymentMethod): string {
   return `${REFERENCE_PREFIX[method]}-${suffix}`;
 }
 
-/**
- * What every payment server action returns. Same shape as the approval
- * actions' `ActionResult` — declared twice because a `"use server"` module may
- * export nothing but async functions, so the type cannot live with the actions.
- */
-export interface ActionResult {
-  ok: boolean;
-  message: string;
-}

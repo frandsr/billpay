@@ -7,7 +7,7 @@ import {
   PauseToggleButton,
 } from "@/components/recurring/recurring-actions";
 import { UpcomingRuns } from "@/components/recurring/upcoming-runs";
-import type { RecurringTemplateListItem } from "@/components/recurring/queries";
+import type { RecurringTemplateListItem } from "@/server/queries/recurring";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

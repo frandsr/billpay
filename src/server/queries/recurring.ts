@@ -10,11 +10,10 @@ import { formatCents } from "@/lib/money";
 /**
  * Reads for the recurring-bill feature.
  *
- * Colocated with the components that consume them: `RecurringList` and
- * `RecurringDetail` are server components that fetch their own data, so the
- * queries live beside them rather than behind a prop-drilling layer. `db` is
- * only ever touched from here and from the server actions — never from a client
- * component.
+ * `RecurringList` and `RecurringDetail` are server components that fetch their
+ * own data, and these are the queries they call. They sit in `src/server/` with
+ * the other reads rather than beside the components, because `db` is only ever
+ * touched from the server layer — never from a component directory.
  */
 
 const TEMPLATE_LIST_INCLUDE = {
