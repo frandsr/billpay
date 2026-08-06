@@ -1,4 +1,6 @@
 import type { BillStatus, PaymentStatus } from "@/lib/domain";
+import { formatCents } from "@/lib/money";
+import { splitsReconcile, validateSplits, type SplitLike } from "@/lib/splits";
 
 /**
  * The bill lifecycle, expressed AS DATA plus the enforcement helpers.
@@ -206,20 +208,31 @@ export const DRAFT_READINESS_META: Record<DraftReadiness, StatusMeta> = {
 };
 
 /** The minimum shape `draftReadiness` needs. Any Prisma bill with its line
- *  items included satisfies it structurally. */
+ *  items — and their splits — included satisfies it structurally. */
 export interface ReadinessBill {
   billNumber?: string | null;
   vendorId?: string | null;
   issueDate?: Date | string | null;
   dueDate?: Date | string | null;
   totalCents?: number | null;
-  lineItems?: ReadinessLineItem[] | null;
+  /** ISO-4217 code, used only to render amounts inside the issue messages. */
+  currency?: string | null;
+  lineItems?: readonly ReadinessLineItem[] | null;
 }
 
 export interface ReadinessLineItem {
   description?: string | null;
   amountCents?: number | null;
   glAccountId?: string | null;
+  /**
+   * The line's splits, when it has any. A non-empty list means THE SPLITS carry
+   * the coding (GLOSSARY: split), so `glAccountId` being null is not a defect —
+   * what matters is that Σ(splits) equals `amountCents`.
+   *
+   * Widened to `SplitLike` rather than importing a Prisma type: this module is
+   * pure, and the editor's unsaved rows satisfy the same shape.
+   */
+  splits?: readonly SplitLike[] | null;
 }
 
 export interface ReadinessResult {
@@ -235,8 +248,22 @@ export interface ReadinessResult {
 /**
  * Full readiness breakdown for a DRAFT bill.
  *
- * A draft is READY when every required field is present AND the line items sum
- * exactly to the authoritative `totalCents`.
+ * A draft is READY when every required field is present, every line item is
+ * CODED, and the line items sum exactly to the authoritative `totalCents`.
+ *
+ * **A line item is coded when it carries a direct `glAccountId` OR carries
+ * splits that reconcile to its amount.** Once splits exist they ARE the coding
+ * (GLOSSARY: a split is the distribution of one line across several GL
+ * accounts, and Σ(splits) = the line amount), so a line fully distributed
+ * across accounts is ready even though its own `glAccountId` is null. Treating
+ * that line as "uncoded" used to make the draft permanently unsubmittable:
+ * nothing in the UI could clear the flag, because the coding was never missing.
+ *
+ * Splits that do NOT reconcile are a genuine defect, and are reported with the
+ * exact delta rather than being lumped in with "no GL account".
+ *
+ * Every message names WHAT is wrong — which line, which delta — because a
+ * blocked draft is only actionable if the reviewer can see what to fix.
  */
 export function draftReadinessDetail(bill: ReadinessBill): ReadinessResult {
   const issues: string[] = [];
@@ -246,6 +273,8 @@ export function draftReadinessDetail(bill: ReadinessBill): ReadinessResult {
     0,
   );
   const totalCents = bill.totalCents ?? 0;
+  const money = (cents: number) =>
+    formatCents(cents, { currency: bill.currency ?? "USD" });
 
   if (!bill.vendorId) issues.push("No vendor selected");
   if (!bill.billNumber?.trim()) issues.push("Missing bill number");
@@ -256,19 +285,63 @@ export function draftReadinessDetail(bill: ReadinessBill): ReadinessResult {
   if (lineItems.length === 0) {
     issues.push("No line items");
   } else {
-    const uncoded = lineItems.filter((line) => !line.glAccountId).length;
-    if (uncoded > 0) {
+    /** 1-based positions of lines with neither a GL account nor any splits. */
+    const uncoded: number[] = [];
+    /** 1-based positions of lines with no description. */
+    const undescribed: number[] = [];
+    /** Per-line split defects, already worded for the UI. */
+    const splitIssues: string[] = [];
+
+    lineItems.forEach((line, index) => {
+      const position = index + 1;
+      const amountCents = line.amountCents ?? 0;
+      const splits = line.splits ?? [];
+
+      if (!line.description?.trim()) undescribed.push(position);
+
+      if (splits.length === 0) {
+        // No splits: the line is coded by its own account, or not at all.
+        if (!line.glAccountId) uncoded.push(position);
+        return;
+      }
+
+      // Splits present: they carry the coding, so the line's own account is
+      // beside the point. The arithmetic lives in `@/lib/splits` — asking it
+      // here is what keeps the editor and the readiness flag telling the same
+      // story about the same split set.
+      const { differenceCents } = splitsReconcile(amountCents, splits);
+      for (const issue of validateSplits(amountCents, splits)) {
+        splitIssues.push(
+          issue.code === "OUT_OF_BALANCE"
+            ? `Line ${position} splits are ${differenceCents > 0 ? "under" : "over"} by ${money(Math.abs(differenceCents))}`
+            : `Line ${position}: ${issue.message}`,
+        );
+      }
+    });
+
+    if (uncoded.length > 0) {
       issues.push(
-        uncoded === 1
-          ? "1 line item is missing a GL account"
-          : `${uncoded} line items are missing a GL account`,
+        uncoded.length === 1
+          ? `Line ${uncoded[0]} is not coded — it needs a GL account or a split`
+          : `${uncoded.length} line items are not coded (lines ${uncoded.join(", ")})`,
       );
     }
-    if (lineItems.some((line) => !line.description?.trim())) {
-      issues.push("A line item is missing a description");
+
+    issues.push(...splitIssues);
+
+    if (undescribed.length > 0) {
+      issues.push(
+        undescribed.length === 1
+          ? `Line ${undescribed[0]} is missing a description`
+          : `${undescribed.length} line items are missing a description (lines ${undescribed.join(", ")})`,
+      );
     }
+
     if (totalCents > 0 && lineItemTotalCents !== totalCents) {
-      issues.push("Line items do not sum to the bill total");
+      const difference = lineItemTotalCents - totalCents;
+      issues.push(
+        `Line items add up to ${money(lineItemTotalCents)}, ${money(Math.abs(difference))} ${difference > 0 ? "over" : "under"} the bill total of ${money(totalCents)}`,
+      );
     }
   }
 

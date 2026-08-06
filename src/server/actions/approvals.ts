@@ -86,7 +86,10 @@ export async function submitBillForApproval(
 
   const bill = await db.bill.findUnique({
     where: { id: billId },
-    include: { lineItems: true },
+    // Splits come along because readiness asks them for the coding: a line
+    // with no `glAccountId` is coded by its splits (GLOSSARY), and without
+    // them here the gate would refuse a draft the UI correctly calls Ready.
+    include: { lineItems: { include: { splits: true } } },
   });
   if (!bill) return fail("That bill no longer exists.");
 

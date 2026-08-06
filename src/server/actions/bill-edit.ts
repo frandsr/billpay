@@ -614,35 +614,24 @@ async function normaliseSplits(splits: SplitInput[], lineTotalCents: number) {
   }));
 }
 
+/**
+ * Swap a line's split set in one transaction.
+ *
+ * The line's own `glAccountId` is deliberately left alone. A split line is
+ * coded BY its splits (GLOSSARY), and `draftReadinessDetail` asks the splits
+ * directly, so there is nothing to compensate for: writing a direct account
+ * derived from the largest split would only make the line claim a coding it
+ * does not have.
+ */
 async function replaceSplits(
-  line: { id: string; glAccountId: string | null },
+  line: { id: string },
   rows: Awaited<ReturnType<typeof normaliseSplits>>,
 ) {
-  // The splits carry the coding once they exist (GLOSSARY), but the frozen
-  // `draftReadinessDetail` in the functional core only knows about
-  // `LineItem.glAccountId` — an uncoded line keeps the draft in `Missing info`.
-  // Rather than leaving a fully split line unsubmittable, backfill the line's
-  // own account from its largest split so the derived flag stays truthful.
-  // (If `src/lib/bill-status.ts` were ours to edit, readiness would ask the
-  // splits instead and this would go away.)
-  const backfillGlAccountId =
-    line.glAccountId === null && rows.length > 0
-      ? [...rows].sort(
-          (a, b) => Math.abs(b.amountCents) - Math.abs(a.amountCents),
-        )[0].glAccountId
-      : null;
-
   await db.$transaction(async (tx) => {
     await tx.lineItemSplit.deleteMany({ where: { lineItemId: line.id } });
     if (rows.length > 0) {
       await tx.lineItemSplit.createMany({
         data: rows.map((row) => ({ ...row, lineItemId: line.id })),
-      });
-    }
-    if (backfillGlAccountId) {
-      await tx.lineItem.update({
-        where: { id: line.id },
-        data: { glAccountId: backfillGlAccountId },
       });
     }
   });
