@@ -1,0 +1,374 @@
+// Bill Pay — accounts payable data model.
+//
+// Conventions (see docs/GLOSSARY.md and docs/ARCHITECTURE.md):
+//  * Money is ALWAYS an Int in minor units (cents). Never Float / Decimal.
+//  * `Bill.totalCents` is AUTHORITATIVE. Line items are coding detail that
+//    should reconcile to it; when they do not, the bill is `Missing info`.
+//  * A "Bill" is the payable record. An "Invoice" is the attached document.
+//  * There is no SCHEDULED bill status — scheduling lives on `Payment`.
+//  * `Missing info` / `Ready` are DERIVED flags on a DRAFT, never stored.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  APPROVER
+  MEMBER
+}
+
+enum VendorStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum GlAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum PaymentTerms {
+  DUE_ON_RECEIPT
+  NET_15
+  NET_30
+  NET_45
+  NET_60
+  NET_90
+}
+
+/// Lifecycle of the payable record. NOTE: no SCHEDULED member — a scheduled
+/// payment is an APPROVED bill that owns a Payment in status SCHEDULED.
+enum BillStatus {
+  DRAFT
+  AWAITING_APPROVAL
+  APPROVED
+  PAID
+  REJECTED
+  ARCHIVED
+}
+
+/// How the bill entered the system. Roadmap ingestion (OCR / CSV / email)
+/// slots in here without a schema change.
+enum BillSource {
+  MANUAL
+  OCR
+  CSV
+  EMAIL
+}
+
+enum LineType {
+  EXPENSE
+  ITEM
+}
+
+enum PaymentMethod {
+  ACH
+  CHECK
+  CARD
+  WIRE
+}
+
+/// Payment has its OWN lifecycle, independent of BillStatus.
+enum PaymentStatus {
+  SCHEDULED
+  INITIATED
+  PAID
+  FAILED
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ActivityType {
+  CREATED
+  UPDATED
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAYMENT_SCHEDULED
+  PAID
+  COMMENTED
+  ARCHIVED
+}
+
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
+
+model User {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  title       String?
+  role        UserRole @default(MEMBER)
+  initials    String
+  avatarColor String   @default("#525252")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBills   Bill[]                @relation("BillCreatedBy")
+  approvalSteps  ApprovalStep[]
+  policySteps    ApprovalPolicyStep[]
+  activities     Activity[]
+
+  @@index([role])
+}
+
+// ---------------------------------------------------------------------------
+// Vendors and chart of accounts
+// ---------------------------------------------------------------------------
+
+model Vendor {
+  id     String       @id @default(cuid())
+  name   String
+  email  String?
+  status VendorStatus @default(ACTIVE)
+
+  // Address
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String  @default("US")
+
+  // Payment details — DEMO ONLY, never store real bank credentials here.
+  bankName      String?
+  accountLast4  String?
+  routingLast4  String?
+
+  defaultPaymentTerms PaymentTerms @default(NET_30)
+  defaultGlAccountId  String?
+  defaultGlAccount    GlAccount?   @relation(fields: [defaultGlAccountId], references: [id])
+
+  taxId  String?
+  is1099 Boolean @default(false)
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bills Bill[]
+
+  @@unique([name])
+  @@index([status])
+  @@index([defaultGlAccountId])
+}
+
+model GlAccount {
+  id     String        @id @default(cuid())
+  code   String        @unique
+  name   String
+  type   GlAccountType @default(EXPENSE)
+  active Boolean       @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems      LineItem[]
+  defaultForVendors Vendor[]
+
+  @@index([active])
+}
+
+// ---------------------------------------------------------------------------
+// Bills
+// ---------------------------------------------------------------------------
+
+model Bill {
+  id         String       @id @default(cuid())
+  billNumber String
+  vendorId   String
+  vendor     Vendor       @relation(fields: [vendorId], references: [id])
+
+  issueDate    DateTime
+  dueDate      DateTime
+  paymentTerms PaymentTerms @default(NET_30)
+
+  /// AUTHORITATIVE amount owed, in minor units of `currency`.
+  totalCents Int
+  /// ISO-4217 code. Single-currency in the MVP; the column already exists so
+  /// multi-currency is an additive change (add fx columns, no rewrite).
+  currency   String @default("USD")
+
+  memo   String?
+  status BillStatus @default(DRAFT)
+  source BillSource @default(MANUAL)
+
+  // The invoice DOCUMENT backing this bill (see GLOSSARY: invoice != bill).
+  invoiceFileUrl  String?
+  invoiceFileName String?
+
+  createdById String
+  createdBy   User   @relation("BillCreatedBy", fields: [createdById], references: [id])
+
+  submittedAt DateTime?
+  approvedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems     LineItem[]
+  payments      Payment[]
+  approvalSteps ApprovalStep[]
+  activities    Activity[]
+
+  @@unique([vendorId, billNumber])
+  @@index([status])
+  @@index([dueDate])
+  @@index([vendorId])
+  @@index([status, dueDate])
+}
+
+model LineItem {
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  description    String
+  quantity       Int    @default(1)
+  unitPriceCents Int
+  /// quantity * unitPriceCents, denormalised so future per-line splits and
+  /// rounding rules do not have to be recomputed on read.
+  amountCents    Int
+
+  glAccountId String?
+  glAccount   GlAccount? @relation(fields: [glAccountId], references: [id])
+
+  /// Free-form dimension (see GLOSSARY: dimension). Promoted to its own table
+  /// later without touching this column's meaning.
+  department String?
+
+  lineType  LineType @default(EXPENSE)
+  sortOrder Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([billId])
+  @@index([glAccountId])
+}
+
+// ---------------------------------------------------------------------------
+// Payments — a SEPARATE entity with its own lifecycle
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  amountCents Int
+  method      PaymentMethod @default(ACH)
+
+  scheduledDate DateTime
+  initiatedAt   DateTime?
+  completedAt   DateTime?
+
+  status    PaymentStatus @default(SCHEDULED)
+  reference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relation is 1:N-capable on purpose. The app enforces a single full payment
+  // per bill for now, which makes partial payments purely additive later.
+  @@index([billId])
+  @@index([status])
+  @@index([scheduledDate])
+}
+
+// ---------------------------------------------------------------------------
+// Approvals — policy (rule) vs. step (instance on a bill)
+// ---------------------------------------------------------------------------
+
+/// A rule: "bills at or above `minAmountCents` need these approvers".
+/// Resolution: among `active` policies, evaluate by `priority` ASC and take the
+/// FIRST whose `minAmountCents` <= bill.totalCents. Zero steps = auto-approve.
+model ApprovalPolicy {
+  id             String  @id @default(cuid())
+  name           String  @unique
+  description    String?
+  priority       Int     @default(100)
+  minAmountCents Int     @default(0)
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  steps ApprovalPolicyStep[]
+
+  @@index([active, priority])
+}
+
+model ApprovalPolicyStep {
+  id       String         @id @default(cuid())
+  policyId String
+  policy   ApprovalPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  stepOrder  Int
+  approverId String
+  approver   User   @relation(fields: [approverId], references: [id])
+
+  @@unique([policyId, stepOrder])
+  @@index([approverId])
+}
+
+/// The INSTANCE materialised on a bill when it is submitted. Powers the
+/// "X of N approved" indicator.
+model ApprovalStep {
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  stepOrder  Int
+  approverId String
+  approver   User   @relation(fields: [approverId], references: [id])
+
+  status    ApprovalStepStatus @default(PENDING)
+  decidedAt DateTime?
+  note      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([billId, stepOrder])
+  @@index([approverId, status])
+  @@index([billId])
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+model Activity {
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  type    ActivityType
+  message String
+
+  createdAt DateTime @default(now())
+
+  @@index([billId, createdAt])
+}
