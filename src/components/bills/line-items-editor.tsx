@@ -1,17 +1,20 @@
-// STUB: implemented in the VERTICAL B phase (bill detail).
-// Owner: Vertical B.
-//
-// Expected behaviour: add, edit, reorder and delete line items (description,
-// quantity, unit price, amount, GL account, department) with a running Σ(lines)
-// vs. `totalCents` reconciliation strip showing the signed difference when they
-// disagree. `totalCents` stays authoritative — the editor never silently
-// rewrites it (ADR 0004). Use draftReadinessDetail() for the issue list, and
-// lineAmountCents()/sumCents() for the arithmetic. Only DRAFT and REJECTED
-// bills are editable, enforced in the action rather than only in the UI.
+/**
+ * Line items slot on the bill detail page.
+ *
+ * A thin Server Component: it loads the one piece of reference data the coding
+ * surface needs beyond `BillDetail` and `glAccounts` — the saved allocation
+ * templates — and hands everything to the client editor.
+ *
+ * The templates are fetched here rather than on the page because the page is
+ * frozen and its props contract (`{ bill, glAccounts }`) is fixed. The read
+ * lives in `src/server/actions/bill-edit.ts`, which vertical B owns;
+ * `src/server/reference-data.ts` is foundation code and stays untouched.
+ */
 
 import type { GlAccount } from "@prisma/client";
 
-import { StubPanel } from "@/components/common/stub-panel";
+import { LineItemTable } from "@/components/bills/line-item-table";
+import { getAllocationTemplates } from "@/server/actions/bill-edit";
 import type { BillDetail } from "@/server/bill-detail";
 
 export interface LineItemsEditorProps {
@@ -19,12 +22,13 @@ export interface LineItemsEditorProps {
   glAccounts: GlAccount[];
 }
 
-export function LineItemsEditor({ bill }: LineItemsEditorProps) {
+export async function LineItemsEditor({
+  bill,
+  glAccounts,
+}: LineItemsEditorProps) {
+  const templates = await getAllocationTemplates();
+
   return (
-    <StubPanel
-      title="Line items"
-      owner="Vertical B — bill detail"
-      summary={`${bill.lineItems.length} line item(s) with GL coding, and the running total vs. the bill amount.`}
-    />
+    <LineItemTable bill={bill} glAccounts={glAccounts} templates={templates} />
   );
 }
