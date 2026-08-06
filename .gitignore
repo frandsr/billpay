@@ -1,4 +1,5 @@
 .DS_Store
+**/.DS_Store
 node_modules/
 .next/
 out/
@@ -9,3 +10,10 @@ dist/
 *.log
 coverage/
 .vercel
+next-env.d.ts
+
+# Obsidian editor state for the docs vault — local tooling, not the docs
+docs/.obsidian/
+
+# TypeScript incremental build info
+tsconfig.tsbuildinfo
