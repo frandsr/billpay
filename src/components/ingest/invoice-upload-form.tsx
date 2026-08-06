@@ -48,6 +48,7 @@ import {
   type OcrUploadState,
 } from "@/lib/ocr-schema";
 import { formatBasisPoints } from "@/lib/splits";
+import { MAX_INVOICE_UPLOAD_BYTES, formatBytes } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import {
   createBillFromExtractionAction,
@@ -122,6 +123,10 @@ export function InvoiceUploadForm({
     if (uploadState.status === "ready") setRunId((current) => current + 1);
   }, [uploadState]);
 
+  // The server re-checks this; catching it here saves the reviewer a round trip
+  // that would otherwise be spent uploading a file we already know is too large.
+  const oversize = file !== null && file.size > MAX_INVOICE_UPLOAD_BYTES;
+
   const pickFile = (next: File | null) => {
     setFile(next);
     if (inputRef.current && next) {
@@ -158,8 +163,8 @@ export function InvoiceUploadForm({
             Drag an invoice document here, or choose a file
           </p>
           <p className="text-muted-foreground mx-auto mt-1 max-w-md text-sm">
-            PDF or image, up to 700 KB. The extraction is a starting point for review —
-            it always lands as a draft, never as a finished bill.
+            PDF or image, up to {formatBytes(MAX_INVOICE_UPLOAD_BYTES)}. The extraction is a
+            starting point for review — it always lands as a draft, never as a finished bill.
           </p>
 
           <input
@@ -181,15 +186,27 @@ export function InvoiceUploadForm({
               <FileText />
               Choose a file
             </Button>
-            <Button type="submit" size="sm" disabled={!file || extracting}>
+            <Button type="submit" size="sm" disabled={!file || oversize || extracting}>
               {extracting ? <Loader2 className="animate-spin" /> : <ScanLine />}
               {extracting ? "Reading the document…" : "Extract invoice"}
             </Button>
           </div>
 
           {file ? (
-            <p className="text-muted-foreground mt-3 font-mono text-xs">
+            <p
+              className={cn(
+                "mt-3 font-mono text-xs",
+                oversize ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
               {file.name} · {formatBytes(file.size)}
+            </p>
+          ) : null}
+
+          {oversize ? (
+            <p className="text-destructive mt-1 text-xs">
+              That document is larger than the {formatBytes(MAX_INVOICE_UPLOAD_BYTES)} limit. Choose
+              a smaller file, or split the scan.
             </p>
           ) : null}
         </div>
@@ -891,10 +908,4 @@ function orderVendors(
     .filter((vendor): vendor is VendorOption => vendor !== undefined);
   const rest = vendors.filter((vendor) => !candidateIds.includes(vendor.id));
   return [...suggested, ...rest];
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

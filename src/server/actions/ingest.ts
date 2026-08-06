@@ -33,6 +33,11 @@ import {
   type OcrUploadState,
 } from "@/lib/ocr-schema";
 import {
+  MAX_CSV_UPLOAD_BYTES,
+  MAX_INVOICE_UPLOAD_BYTES,
+  formatBytes,
+} from "@/lib/uploads";
+import {
   SUPPORTED_INVOICE_TYPES_LABEL,
   extractInvoice,
   isSupportedInvoiceType,
@@ -57,14 +62,6 @@ import {
  * reference data before writing anything.
  */
 
-/**
- * Next's default Server Action body limit is 1 MB and lives in `next.config.ts`,
- * which this vertical does not own. Cap uploads below it so an oversized file
- * gets an explanatory message instead of an opaque 413.
- */
-const MAX_UPLOAD_BYTES = 700 * 1024;
-const MAX_CSV_BYTES = 512 * 1024;
-
 // ---------------------------------------------------------------------------
 // 1. OCR — extract (no writes)
 // ---------------------------------------------------------------------------
@@ -78,10 +75,10 @@ export async function extractInvoiceAction(
   if (!(file instanceof File) || file.size === 0) {
     return { status: "error", message: "Choose an invoice document to scan." };
   }
-  if (file.size > MAX_UPLOAD_BYTES) {
+  if (file.size > MAX_INVOICE_UPLOAD_BYTES) {
     return {
       status: "error",
-      message: `That file is ${formatBytes(file.size)}. The demo accepts documents up to ${formatBytes(MAX_UPLOAD_BYTES)}.`,
+      message: `That file is ${formatBytes(file.size)}. The demo accepts documents up to ${formatBytes(MAX_INVOICE_UPLOAD_BYTES)}.`,
     };
   }
 
@@ -487,10 +484,10 @@ export async function previewBillImportAction(
   if (!(file instanceof File) || file.size === 0) {
     return { status: "error", message: "Choose a CSV file to import." };
   }
-  if (file.size > MAX_CSV_BYTES) {
+  if (file.size > MAX_CSV_UPLOAD_BYTES) {
     return {
       status: "error",
-      message: `That file is ${formatBytes(file.size)}. The demo accepts imports up to ${formatBytes(MAX_CSV_BYTES)}.`,
+      message: `That file is ${formatBytes(file.size)}. The demo accepts imports up to ${formatBytes(MAX_CSV_UPLOAD_BYTES)}.`,
     };
   }
 
@@ -784,10 +781,4 @@ function isUniqueViolation(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
