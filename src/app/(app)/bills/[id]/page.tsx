@@ -8,6 +8,7 @@ import { ApprovalPanel } from "@/components/approvals/approval-panel";
 import { BillHeader } from "@/components/bills/bill-header";
 import { InvoicePreview } from "@/components/bills/invoice-preview";
 import { LineItemsEditor } from "@/components/bills/line-items-editor";
+import { OcrReviewPanel } from "@/components/ingest/ocr-review-panel";
 import { PaymentPanel } from "@/components/payments/payment-panel";
 import { getCurrentUser } from "@/lib/current-user";
 import { getBillDetail } from "@/server/bill-detail";
@@ -31,11 +32,15 @@ export async function generateMetadata({
  * to every panel; the panels themselves are owned by the verticals.
  *
  * Layout: the invoice document sits on the left and stays in view while the
- * coding, approval, payment and audit panels scroll on the right.
+ * OCR review, coding, approval, payment and audit panels scroll on the right.
  *
- * FROZEN — foundation-owned and shared by all three verticals. Do not edit it
- * to add a query or widen a prop: if you need a wider `billDetailInclude`,
- * STOP and coordinate. `billDetailInclude` lives in `src/server/bill-detail.ts`,
+ * `billDetailInclude` already carries line-item splits, the OCR extractions and
+ * the recurring template, so every panel below has what it needs from the one
+ * object it is handed.
+ *
+ * FROZEN — foundation-owned and shared by all five verticals. Do not edit it to
+ * add a query or widen a prop: if you need a wider `billDetailInclude`, STOP
+ * and coordinate. `billDetailInclude` lives in `src/server/bill-detail.ts`,
  * which is frozen too.
  */
 export default async function BillDetailPage({ params }: BillDetailPageProps) {
@@ -71,6 +76,9 @@ export default async function BillDetailPage({ params }: BillDetailPageProps) {
 
         {/* Work column */}
         <div className="min-w-0 space-y-5">
+          {/* Slot: vertical D — renders nothing unless the bill has an
+              extraction, so review comes before coding when it applies. */}
+          <OcrReviewPanel bill={bill} />
           {/* Slot: vertical B */}
           <LineItemsEditor bill={bill} glAccounts={glAccounts} />
           {/* Slot: vertical C */}
