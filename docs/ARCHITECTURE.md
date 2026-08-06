@@ -156,8 +156,12 @@ generator simply creates DRAFT bills on a schedule.
 `Bill.source` was already a `BillSource` enum with `MANUAL | OCR | CSV | EMAIL`
 (`RECURRING` was added later, as the one-line additive migration ADR 0005
 predicts, so a generated bill records the channel it arrived by),
-and `invoiceFileUrl` / `invoiceFileName` already held the document, so neither
-ingestion path needed a `Bill` column.
+and `invoiceFileUrl` / `invoiceFileName` already pointed at the document, so
+neither ingestion path needed a `Bill` column. Note that nothing yet *stores* an
+uploaded file — the bytes are read for extraction and discarded, and
+`invoiceFileUrl` resolves only to a bundled sample. That is the storage seam a
+future S3-compatible adapter fills, and it is the one omission in the README
+that is a real gap rather than a scope choice.
 
 Extraction metadata went where §3 said it would: a sibling table, not a wider
 `Bill`. `OcrExtraction` keeps the provider's raw response, the provider name and
@@ -301,7 +305,7 @@ Bulk actions are **cut** (ADR 0008). Do not build bulk selection.
 
 | | |
 | --- | --- |
-| **Owns** | `src/components/bills/bill-header.tsx` · `src/components/bills/line-items-editor.tsx` · `src/components/bills/line-item-splits.tsx` *(new)* · `src/components/bills/invoice-preview.tsx` · `src/components/activity/**` · `src/server/actions/bill-edit.ts` *(new)* · `src/server/actions/splits.ts` *(new)* |
+| **Owns** | `src/components/bills/bill-header.tsx` · `src/components/bills/line-items-editor.tsx` · `src/components/bills/line-item-splits.tsx` *(new)* · `src/components/bills/invoice-preview.tsx` · `src/components/activity/**` · `src/server/actions/bill-edit.ts` *(new — the split actions landed here too, rather than in a second file)* |
 | **Fills** | `<BillHeader/>`, `<LineItemsEditor/>`, `<InvoicePreview/>`, `<ActivityFeed/>` |
 | **Reads, never edits** | `src/app/(app)/bills/[id]/page.tsx`, `src/lib/**` (especially `splits.ts`), vertical A's `bill-status-badge.tsx` |
 
@@ -324,7 +328,7 @@ never write an unbalanced split without surfacing the difference.
 
 | | |
 | --- | --- |
-| **Owns** | `src/components/ingest/**` (`import-wizard.tsx`, `invoice-upload.tsx`, `ocr-review-panel.tsx`) · `src/app/(app)/bills/import/**` · `src/app/(app)/bills/upload/**` · `src/server/actions/ingest.ts` *(new)* · `src/lib/csv.ts` *(new, pure)* · `src/lib/ocr-schema.ts` *(new, pure)* |
+| **Owns** | `src/components/ingest/**` (`import-wizard.tsx`, `invoice-upload.tsx`, `ocr-review-panel.tsx`) · `src/app/(app)/bills/import/**` · `src/app/(app)/bills/upload/**` · `src/server/actions/ingest.ts` *(new)* · `src/lib/csv-import.ts` *(new, pure)* · `src/lib/ocr-schema.ts` *(new, pure)* |
 | **Fills** | `<ImportWizard/>`, `<InvoiceUpload/>`, `<OcrReviewPanel/>` |
 | **Reads, never edits** | `src/lib/money.ts`, `src/lib/dates.ts`, `src/server/reference-data.ts`, `src/app/(app)/bills/[id]/page.tsx`, vertical A's `new-bill-form.tsx` |
 
@@ -352,7 +356,7 @@ produce.
 
 | | |
 | --- | --- |
-| **Owns** | `src/components/dashboard/**` · `src/components/vendors/**` · `src/app/(app)/dashboard/**` · `src/app/(app)/vendors/**` · `src/server/queries/reports.ts` *(new)* · the test suite · `README.md` |
+| **Owns** | `src/components/dashboard/**` · `src/components/vendors/**` · `src/app/(app)/dashboard/**` · `src/app/(app)/vendors/**` · `src/server/queries/dashboard.ts` *(new)* · `src/server/queries/vendors.ts` *(new)* · the test suite · `README.md` |
 | **Fills** | `<DashboardSummary/>`, `<VendorList/>` |
 | **Also** | domain tests over the pure core, README, deploy |
 
@@ -458,8 +462,9 @@ bill.recurringBill?.name                // vertical E — "generated from…"
 
 `prisma/seed-data.ts` is pure data, `prisma/seed-compute.ts` derives amounts and
 dates from it, `prisma/seed.ts` writes it, and `scripts/generate-invoices.ts`
-renders one placeholder invoice PDF per bill from the *same* numbers — so the
-document in the viewer always matches the row in the table.
+renders a placeholder invoice PDF from the *same* numbers for every bill that is
+meant to have one — 45 of the 46; one draft is deliberately document-less — so
+the document in the viewer always matches the row in the table.
 
 The dataset is deterministic: every id, name, amount and line is hardcoded, and
 the only PRNG (`makeRandom(20260101)`) is fixed-seed. Due dates and recurring
@@ -520,8 +525,10 @@ Deliberate demo hooks:
 `docker compose up --build` starts Postgres 16 (with a healthcheck) and the app.
 The app waits for the database, runs `prisma generate`, applies migrations with
 `prisma migrate deploy`, seeds **only when the database is empty**
-(`SEED_IF_EMPTY=1`, so a restart does not wipe the reviewer's work) and then
-serves the Next.js standalone build on port 3000.
+(the default, so a restart does not wipe the reviewer's work) and then
+serves the Next.js standalone build on port 3000. `SEED_ON_START` controls
+that: `auto` (the default) seeds an empty database only, `always` reseeds on
+every start and destroys existing data, `never` never seeds.
 
 The image is multi-stage: `base` → `deps` (full tree, for the build) →
 `prod-deps` (runtime tree) → `builder` (`prisma generate` + `next build`) →
