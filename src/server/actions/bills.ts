@@ -58,7 +58,7 @@ function textList(formData: FormData, name: string): string[] {
  * Create a DRAFT bill with `source = MANUAL` plus its CREATED activity row.
  *
  * Shaped for `useActionState`: it returns a serialisable error state, or
- * redirects to the inbox on success.
+ * redirects to the new bill's detail page on success.
  */
 export async function createBillAction(
   _previousState: CreateBillFormState,
@@ -273,5 +273,11 @@ export async function createBillAction(
   revalidatePath(`/bills/${createdBillId}`);
 
   // `redirect` throws, so it stays outside the try/catch above.
-  redirect(`/bills?tab=drafts&created=${encodeURIComponent(billNumber)}`);
+  //
+  // Land on the bill, NOT the inbox. Saving is the start of coding it, not the
+  // end of the job: splits, allocation templates and the approval submit all
+  // live on the detail page, so sending the person to a list would only make
+  // them find the bill again. `?created=1` is what the detail page reads to
+  // acknowledge the save.
+  redirect(`/bills/${createdBillId}?created=1`);
 }
