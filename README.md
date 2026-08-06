@@ -110,8 +110,11 @@ applies the migrations, seeds the demo data and serves the app on
 **http://localhost:3000**.
 
 Re-running keeps whatever you did in the UI — the seed only runs when the
-database is empty. To start clean: `docker compose down -v && docker compose up
---build`.
+database is empty. To start clean:
+
+```bash
+docker compose down -v && docker compose up --build
+```
 
 ### Local development
 
@@ -148,9 +151,11 @@ as, which is how one person walks a bill through a two-step chain:
 | Priya Raman | Chief Financial Officer | Approver |
 
 Policies: under $1,000 auto-approves, $1,000+ needs the Controller, $10,000+
-needs the Controller and then the CFO. Submit a $12k bill as Maya, approve as
-Daniel, approve as Priya, then schedule the payment — the activity feed shows the
-correct actor at every step.
+needs the Controller and then the CFO. Create a bill over $10,000 as Maya and
+submit it, approve as Daniel, approve as Priya, then schedule the payment — the
+activity feed shows the correct actor at every step. Bills already sitting in the
+**Awaiting approval** tab are at various points in their chains, so there is
+something to approve immediately too.
 
 The seed loads 46 bills across every status: four drafts blocked for four
 different reasons, bills at different points in their approval chains, payments
