@@ -19,6 +19,7 @@ import type {
   PaymentMethod as PrismaPaymentMethod,
   PaymentStatus as PrismaPaymentStatus,
   PaymentTerms as PrismaPaymentTerms,
+  RecurringFrequency as PrismaRecurringFrequency,
 } from "@prisma/client";
 
 import type {
@@ -27,6 +28,7 @@ import type {
   PaymentMethod,
   PaymentStatus,
   PaymentTerms,
+  RecurringFrequency,
 } from "@/lib/domain";
 
 /**
@@ -48,6 +50,9 @@ type _PaymentMethodParity = Expect<IsExact<PaymentMethod, PrismaPaymentMethod>>;
 type _PaymentTermsParity = Expect<IsExact<PaymentTerms, PrismaPaymentTerms>>;
 type _ApprovalStepStatusParity = Expect<
   IsExact<ApprovalStepStatus, PrismaApprovalStepStatus>
+>;
+type _RecurringFrequencyParity = Expect<
+  IsExact<RecurringFrequency, PrismaRecurringFrequency>
 >;
 
 export {};

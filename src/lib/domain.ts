@@ -66,3 +66,18 @@ export const APPROVAL_STEP_STATUSES = [
 ] as const;
 
 export type ApprovalStepStatus = (typeof APPROVAL_STEP_STATUSES)[number];
+
+/**
+ * Cadence of a `RecurringBill`.
+ *
+ * Deliberately small. A recurring bill is a *generator* of DRAFT bills, not a
+ * calendar, so three cadences cover the AP cases (rent, SaaS, insurance) and a
+ * fourth is an additive enum member on both sides.
+ */
+export const RECURRING_FREQUENCIES = [
+  "MONTHLY",
+  "QUARTERLY",
+  "ANNUALLY",
+] as const;
+
+export type RecurringFrequency = (typeof RECURRING_FREQUENCIES)[number];
