@@ -1,6 +1,6 @@
 import { PAYMENT_TERMS, type PaymentTerms } from "@/lib/domain";
 import { PAYMENT_TERMS_DAYS, dueDateFrom, fromDateInputValue } from "@/lib/dates";
-import { lineAmountCents, parseAmountToCents, sumCents } from "@/lib/money";
+import { formatCents, lineAmountCents, parseAmountToCents, sumCents } from "@/lib/money";
 
 /**
  * The OCR extraction contract.
@@ -21,6 +21,11 @@ import { lineAmountCents, parseAmountToCents, sumCents } from "@/lib/money";
  * ADR 0004: the extracted header total is authoritative. When the extracted
  * lines do not sum to it we record a warning and let the draft land in
  * `Missing info`. We never quietly rewrite either number to make them agree.
+ *
+ * The summary-block guard (section 3b) is the deterministic half of the same
+ * rule: a model that returns "Subtotal" and "Tax" as line items double-counts
+ * the invoice, so those rows are filtered out here rather than being trusted to
+ * the prompt alone. What it drops is recorded, never discarded silently.
  *
  * PURE MODULE: no Prisma, no React, no `next/*`, no I/O. Provider calls live in
  * `src/server/ocr/`.
@@ -84,19 +89,24 @@ export const INVOICE_EXTRACTION_JSON_SCHEMA: JsonSchemaNode = {
     totalAmount: {
       type: "string",
       nullable: true,
-      description: `The invoice grand total (amount due). ${MONEY_STRING_HINT}`,
+      description: `The invoice grand total (the amount due), which already includes any tax, discount, shipping or surcharge printed in the summary block. ${MONEY_STRING_HINT}`,
     },
     lineItems: {
       type: "array",
       description:
-        "One entry per charge line on the document, in the order printed. Include tax, shipping and discount lines as their own entries. Do not invent a line to make the lines add up to the total.",
+        "ONLY the itemised goods or services being charged: one entry per row of the invoice's line-item table, in the order printed. " +
+        "Rows from the invoice's SUMMARY BLOCK are not line items and must NOT be returned here — subtotal, tax, sales tax, VAT, GST, discount, shipping, freight, surcharge, handling, service charge, balance due, amount due and total are all summary rows, whether they sit under the table or in a totals panel beside it. " +
+        "Tax and fees belong to the grand total, which is reported separately in `totalAmount`. " +
+        "Returning a subtotal or tax row here double-counts the invoice. " +
+        "Never invent, split, merge or adjust a line to make the lines add up to the total — the total is authoritative and the lines are allowed to disagree with it.",
       items: {
         type: "object",
         properties: {
           description: {
             type: "string",
             nullable: true,
-            description: "The line's printed description.",
+            description:
+              'The line\'s printed description — the good or service supplied. Never a summary label such as "Subtotal", "Sales tax 8.625%", "Shipping & handling", "Balance due" or "Total".',
           },
           quantity: {
             type: "number",
@@ -185,6 +195,23 @@ export interface ExtractedLineItem {
   confidenceBasisPoints: number | null;
 }
 
+/**
+ * A row the model returned as a line item that was actually part of the
+ * invoice's summary block, and so was NOT imported as a line item.
+ *
+ * Kept on the result — and therefore in `OcrExtraction.rawResult` — so the drop
+ * is auditable and can be shown to the reviewer. Nothing disappears silently.
+ */
+export interface ExtractedSummaryRow {
+  /** The row's description, verbatim as the model returned it. */
+  description: string;
+  amountCents: number;
+  /** The normalised summary label that matched, e.g. "sales tax". */
+  matchedLabel: string;
+  /** Reviewer-facing reason the guard was confident enough to drop the row. */
+  reason: string;
+}
+
 export interface OcrExtractionResult {
   /** The invoice DOCUMENT the run read (glossary: invoice != bill). */
   documentFileName: string | null;
@@ -201,6 +228,11 @@ export interface OcrExtractionResult {
   lineItems: ExtractedLineItem[];
   /** Σ(lineItems.amountCents). Stored so the disagreement survives a re-read. */
   lineTotalCents: number;
+  /**
+   * Rows the summary-block guard removed from `lineItems`. Empty on a clean
+   * read. Surfaced in the review UI so a reviewer can see what was dropped.
+   */
+  removedSummaryRows: ExtractedSummaryRow[];
   /** Reviewer-facing notes: what was inferred, what did not reconcile. */
   warnings: string[];
   /** The provider's verbatim response, kept so a review can be re-derived. */
@@ -402,9 +434,20 @@ export function buildExtractionResult(
     );
   }
 
-  const lineItems = (payload.lineItems ?? [])
+  const readLines = (payload.lineItems ?? [])
     .map((line) => normalizeLine(line, currency, confidence.lineItems ?? null))
     .filter((line): line is ExtractedLineItem => line !== null);
+
+  // A model that returns the summary block as line items double-counts the
+  // invoice, so the rows are removed here rather than trusted to the prompt.
+  const { lineItems, removed: removedSummaryRows } = partitionSummaryRows(
+    readLines,
+    totalCents,
+  );
+
+  if (removedSummaryRows.length > 0) {
+    warnings.push(summaryRowsWarning(removedSummaryRows, currency));
+  }
 
   if (lineItems.length === 0) {
     warnings.push(
@@ -440,6 +483,7 @@ export function buildExtractionResult(
     },
     lineItems,
     lineTotalCents,
+    removedSummaryRows,
     warnings: dedupe(warnings),
     raw: options.raw,
     model: options.model ?? null,
@@ -489,6 +533,305 @@ function normalizeLine(
 }
 
 // ---------------------------------------------------------------------------
+// 3b. The summary-block guard
+//
+// Invoices print two different kinds of row and models conflate them: the
+// itemised goods or services, and the summary block underneath (subtotal, tax,
+// shipping, total due). Only the first kind is a line item. Returning the
+// second kind as line items double-counts the invoice — an $1,817.70 bill whose
+// "lines" sum to $3,635.40 — which then reads as a reconciliation failure that
+// no amount of human coding can fix.
+//
+// The prompt asks the model not to do this. This is the layer that has to hold
+// when it does it anyway.
+//
+// The rule is deliberately conservative. A row is dropped ONLY when BOTH hold:
+//
+//   1. Its description, normalised, IS a known summary label — a whole-string
+//      match, never a substring. "Tax preparation services" and "Shipping crate
+//      assembly" are goods and services and never match.
+//   2. At least one CORROBORATING signal agrees that it is not a real charge
+//      line: it has no real quantity (qty 1 with the unit price equal to the
+//      amount), or its amount equals the extracted total, or its amount equals
+//      the sum of the rows above it.
+//
+// Prefer a false negative to a false positive: a surviving summary row is
+// caught by the existing "lines do not sum to the total" warning and a human
+// deletes it, whereas a vanished real line silently corrupts the coding.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whole-string labels that mean "this is part of the summary block".
+ *
+ * Matched against `normalizeSummaryLabel` output, so punctuation, casing,
+ * percentages and trailing amounts are already gone: "Sub-total", "SUBTOTAL"
+ * and "Subtotal:" all arrive here as "sub total"/"subtotal".
+ */
+const SUMMARY_LABELS: ReadonlySet<string> = new Set([
+  // Subtotals
+  "subtotal",
+  "sub total",
+  "subtotals",
+  "sub totals",
+  "net subtotal",
+  "line subtotal",
+  "items subtotal",
+  "subtotal before tax",
+  // Totals and what is owed
+  "total",
+  "totals",
+  "grand total",
+  "final total",
+  "gross total",
+  "net total",
+  "invoice total",
+  "order total",
+  "total due",
+  "total amount",
+  "total amount due",
+  "total payable",
+  "total invoice amount",
+  "total charges",
+  "total charge",
+  "amount due",
+  "amount payable",
+  "amount owed",
+  "amount owing",
+  "amount remaining",
+  "net amount",
+  "net amount due",
+  "net payable",
+  "balance",
+  "balance due",
+  "balance owing",
+  "balance remaining",
+  "please pay this amount",
+  // Tax
+  "tax",
+  "taxes",
+  "sales tax",
+  "sales taxes",
+  "use tax",
+  "state tax",
+  "local tax",
+  "city tax",
+  "county tax",
+  "tax total",
+  "total tax",
+  "tax amount",
+  "taxable amount",
+  "estimated tax",
+  "vat",
+  "vat total",
+  "value added tax",
+  "gst",
+  "hst",
+  "pst",
+  "qst",
+  "gst hst",
+  "iva",
+  "igv",
+  // Discounts, credits and money already paid
+  "discount",
+  "discounts",
+  "discount applied",
+  "less discount",
+  "trade discount",
+  "volume discount",
+  "early payment discount",
+  "credit",
+  "credits",
+  "credit applied",
+  "amount paid",
+  "payments received",
+  "less payments",
+  "previous balance",
+  "deposit",
+  "deposit paid",
+  // Shipping and fees printed below the table
+  "shipping",
+  "shipping handling",
+  "shipping and handling",
+  "handling",
+  "handling charge",
+  "freight",
+  "freight charge",
+  "delivery",
+  "delivery charge",
+  "postage",
+  "postage and packing",
+  "surcharge",
+  "fuel surcharge",
+  "service charge",
+  "service fee",
+  "processing fee",
+  "admin fee",
+  "administration fee",
+  "administrative fee",
+  "convenience fee",
+  "late fee",
+  // Rounding
+  "rounding",
+  "rounding adjustment",
+  "rounding difference",
+]);
+
+/** Qualifiers a summary row may carry that do not change what it is. */
+const SUMMARY_LEADING_QUALIFIERS = /^(?:less|plus|add|incl|including|est|estimated|total)\s+/;
+
+/**
+ * Reduce a printed description to the bare label it would be in a summary
+ * block, or "" when there is nothing left to compare.
+ *
+ * Drops the decoration a totals row picks up — a rate ("Sales tax 8.625%"), a
+ * parenthetical ("Subtotal (USD)"), an inline amount, punctuation — so the
+ * comparison in `looksLikeSummaryLabel` can be an exact whole-string match.
+ * That exactness is the whole safety property: it is why "Tax preparation
+ * services" is not a tax row.
+ */
+export function normalizeSummaryLabel(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    // "Subtotal (USD)", "Tax [8.625%]"
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    // "Sales tax 8.625%", "VAT @ 20 %"
+    .replace(/\d+(?:[.,]\d+)?\s*%/g, " ")
+    // "Shipping $45.00", "Total 1,817.70"
+    .replace(/[$€£¥]\s*\d[\d.,]*/g, " ")
+    .replace(/\d[\d.,]*/g, " ")
+    .replace(/[^a-z]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Whether a description IS a summary label rather than merely mentioning one.
+ *
+ * Whole-string only. "Tax" matches; "Tax preparation services" does not.
+ */
+export function looksLikeSummaryLabel(value: string | null | undefined): boolean {
+  const normalized = normalizeSummaryLabel(value);
+  if (!normalized) return false;
+  if (SUMMARY_LABELS.has(normalized)) return true;
+
+  // "Less discount", "Estimated sales tax" — the qualifier is noise.
+  const stripped = normalized.replace(SUMMARY_LEADING_QUALIFIERS, "");
+  return stripped !== normalized && SUMMARY_LABELS.has(stripped);
+}
+
+export interface SummaryRowPartition {
+  /** The rows that are genuinely itemised goods or services. */
+  lineItems: ExtractedLineItem[];
+  /** The rows removed, with why. Empty on a clean read. */
+  removed: ExtractedSummaryRow[];
+}
+
+/**
+ * Split read rows into real line items and summary-block rows.
+ *
+ * `totalCents` is the extracted header total, used only as a corroborating
+ * signal — ADR 0004 keeps it authoritative, and nothing here adjusts it or the
+ * lines to make them agree.
+ *
+ * Two rails stop the guard from doing damage:
+ *  * A row is never dropped on its label alone.
+ *  * The last line is never dropped. If every row looks like a summary row the
+ *    read is too strange to act on, so everything is kept and the existing
+ *    reconciliation warning does the talking.
+ */
+export function partitionSummaryRows(
+  lines: readonly ExtractedLineItem[],
+  totalCents: number | null,
+): SummaryRowPartition {
+  const lineItems: ExtractedLineItem[] = [];
+  const removed: ExtractedSummaryRow[] = [];
+  let keptRunningTotal = 0;
+
+  for (const line of lines) {
+    const matchedLabel = looksLikeSummaryLabel(line.description)
+      ? normalizeSummaryLabel(line.description)
+      : null;
+
+    if (matchedLabel === null) {
+      lineItems.push(line);
+      keptRunningTotal += line.amountCents;
+      continue;
+    }
+
+    const reason = corroborateSummaryRow(line, totalCents, keptRunningTotal, lineItems.length);
+    if (reason === null) {
+      // The label matched but nothing else did — it may be a real charge line
+      // called "Shipping". Keep it; the mismatch warning is the safety net.
+      lineItems.push(line);
+      keptRunningTotal += line.amountCents;
+      continue;
+    }
+
+    removed.push({
+      description: line.description,
+      amountCents: line.amountCents,
+      matchedLabel,
+      reason,
+    });
+  }
+
+  // Never leave the draft with nothing to code.
+  if (lineItems.length === 0) {
+    return { lineItems: [...lines], removed: [] };
+  }
+
+  return { lineItems, removed };
+}
+
+/**
+ * The second half of the rule: evidence beyond the label that this row is not
+ * an itemised charge. Returns the reviewer-facing reason, or `null` to keep.
+ */
+function corroborateSummaryRow(
+  line: ExtractedLineItem,
+  totalCents: number | null,
+  precedingTotalCents: number,
+  precedingCount: number,
+): string | null {
+  // Equals the whole invoice — a "Total due" row restated inside the table.
+  if (totalCents !== null && line.amountCents === totalCents && totalCents !== 0) {
+    return "its amount equals the extracted invoice total";
+  }
+
+  // Equals everything above it — the classic subtotal row.
+  if (
+    precedingCount > 0 &&
+    line.amountCents !== 0 &&
+    line.amountCents === precedingTotalCents
+  ) {
+    return "its amount equals the sum of the line items above it";
+  }
+
+  // No real quantity: a summary row is a single figure, not quantity × price.
+  if (line.quantity <= 1 && (line.unitPriceCents === line.amountCents || line.unitPriceCents === 0)) {
+    return "it carries no quantity or unit price of its own";
+  }
+
+  return null;
+}
+
+/** One reviewer-facing sentence naming every row the guard removed. */
+function summaryRowsWarning(
+  removed: readonly ExtractedSummaryRow[],
+  currency: string,
+): string {
+  const listed = removed
+    .map((row) => `${row.description} (${formatCents(row.amountCents, { currency })})`)
+    .join(", ");
+  const subject =
+    removed.length === 1 ? "1 summary row was" : `${removed.length} summary rows were`;
+  return `${subject} not imported as line items: ${listed}. Tax and fees belong to the invoice total, which is captured separately.`;
+}
+
+// ---------------------------------------------------------------------------
 // 4. Reading a persisted `rawResult` back
 // ---------------------------------------------------------------------------
 
@@ -524,6 +867,24 @@ export function normalizeOcrRawResult(raw: unknown): OcrExtractionResult | null 
     })
     .filter((line): line is ExtractedLineItem => line !== null);
 
+  // Runs written before the summary-block guard existed have no such rows, so
+  // an absent key reads as "nothing was dropped" rather than as a broken row.
+  const removedSummaryRows: ExtractedSummaryRow[] = (
+    Array.isArray(raw.removedSummaryRows) ? raw.removedSummaryRows : []
+  )
+    .map((entry): ExtractedSummaryRow | null => {
+      if (!isRecord(entry)) return null;
+      const description = asString(entry.description);
+      if (!description) return null;
+      return {
+        description,
+        amountCents: asInteger(entry.amountCents) ?? 0,
+        matchedLabel: asString(entry.matchedLabel) ?? normalizeSummaryLabel(description),
+        reason: asString(entry.reason) ?? "it reads as part of the invoice summary block",
+      };
+    })
+    .filter((row): row is ExtractedSummaryRow => row !== null);
+
   return {
     documentFileName:
       typeof raw.documentFileName === "string" ? raw.documentFileName : null,
@@ -543,6 +904,7 @@ export function normalizeOcrRawResult(raw: unknown): OcrExtractionResult | null 
     lineItems,
     lineTotalCents:
       asInteger(raw.lineTotalCents) ?? sumCents(lineItems.map((line) => line.amountCents)),
+    removedSummaryRows,
     warnings: Array.isArray(raw.warnings)
       ? raw.warnings.filter((entry): entry is string => typeof entry === "string")
       : [],

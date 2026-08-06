@@ -44,6 +44,7 @@ import { formatCents, lineAmountCents, parseAmountToCents, sumCents } from "@/li
 import {
   isLowConfidence,
   type ExtractedField,
+  type ExtractedSummaryRow,
   type OcrSaveState,
   type OcrUploadState,
 } from "@/lib/ocr-schema";
@@ -676,6 +677,8 @@ function ExtractionReview({
                 Add a line
               </Button>
 
+              <SummaryRowsNote rows={result.removedSummaryRows} currency={currency} />
+
               <Separator />
 
               <ReconciliationStrip
@@ -777,6 +780,50 @@ function DocumentViewer({
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * What the summary-block guard removed.
+ *
+ * The guard drops subtotal/tax/total rows the model mistook for line items. It
+ * is only allowed to do that because the reviewer can see it happened and add
+ * the row back by hand if the read was wrong — nothing disappears silently.
+ */
+function SummaryRowsNote({
+  rows,
+  currency,
+}: {
+  rows: ExtractedSummaryRow[];
+  currency: string;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="text-muted-foreground space-y-1 rounded-md border border-dashed px-3 py-2 text-xs">
+      <p className="font-medium">
+        {rows.length === 1
+          ? "1 summary row was not imported as a line item"
+          : `${rows.length} summary rows were not imported as line items`}
+      </p>
+      <ul className="space-y-0.5">
+        {rows.map((row, index) => (
+          <li key={`${row.description}-${index}`} className="flex justify-between gap-3">
+            <span className="min-w-0 truncate">
+              {row.description}
+              <span className="text-muted-foreground/80"> — {row.reason}</span>
+            </span>
+            <span className="tabular-nums">
+              {formatCents(row.amountCents, { currency })}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p>
+        Tax and fees belong to the total, which is captured separately. Add a line back
+        if one of these was really a charge for goods or services.
+      </p>
+    </div>
   );
 }
 

@@ -42,8 +42,10 @@ const SYSTEM_INSTRUCTION = [
   "Report only what is printed on the document. Never infer, average or complete a figure that is not there — use null instead.",
   "The vendor is the party issuing the invoice and being paid, not the customer being billed.",
   "Copy every amount exactly as printed, digits and separators only. Do not round, do not convert currency, do not add a currency symbol.",
-  "List every charge line in the order printed, including tax, shipping and discount lines.",
-  "The grand total and the sum of the lines often disagree because a line is unreadable. That is expected: report both as printed and never adjust one to match the other.",
+  "`lineItems` is ONLY the itemised goods or services being charged — one entry per row of the invoice's line-item table, in the order printed.",
+  "The invoice's SUMMARY BLOCK is not line items. Never return subtotal, tax, sales tax, VAT, GST, discount, shipping, freight, surcharge, handling, service charge, balance due, amount due or total as a `lineItems` entry, whether it is printed under the table or in a totals panel beside it.",
+  "Tax and fees belong to the grand total, which you report separately in `totalAmount`. Returning a subtotal or tax row as a line item double-counts the invoice.",
+  "The grand total and the sum of the lines routinely disagree, because tax and fees sit outside the itemised lines or because a line is unreadable. That is expected: report both as printed, never adjust one to match the other, and never add a line to close the gap.",
   "Put anything a human should double-check into `notes`.",
 ].join(" ");
 

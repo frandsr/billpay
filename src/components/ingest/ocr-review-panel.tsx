@@ -188,6 +188,33 @@ export async function OcrReviewPanel({ bill }: OcrReviewPanelProps) {
             </ul>
           )}
 
+          {result.removedSummaryRows.length > 0 ? (
+            <div className="text-muted-foreground space-y-1 rounded-md border border-dashed px-3 py-2 text-xs">
+              <p className="font-medium">
+                {result.removedSummaryRows.length === 1
+                  ? "1 summary row was not imported as a line item"
+                  : `${result.removedSummaryRows.length} summary rows were not imported as line items`}
+              </p>
+              <ul className="space-y-0.5">
+                {result.removedSummaryRows.map((row, index) => (
+                  <li
+                    key={`${row.description}-${index}`}
+                    className="flex justify-between gap-3"
+                  >
+                    <span className="min-w-0 truncate">
+                      {row.description}
+                      <span className="text-muted-foreground/80"> — {row.reason}</span>
+                    </span>
+                    <span className="tabular-nums">
+                      {formatCents(row.amountCents, { currency: result.currency })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p>Tax and fees belong to the total, which is captured separately.</p>
+            </div>
+          ) : null}
+
           <div
             className={cn(
               "flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm",
