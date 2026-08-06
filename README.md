@@ -1,10 +1,105 @@
 # Bill Pay
 
-Accounts payable for a mid-size company: capture a bill, code it to the general
-ledger, route it through an approval chain, schedule the payment and watch the
-AP aging. Built as a take-home challenge inspired by Ramp Bill Pay.
+Accounts payable for a mid-size finance team. A take-home build inspired by
+Ramp Bill Pay.
 
-## Run it
+**Live: https://billpay-production-e277.up.railway.app** — no login, pick an
+identity from the top-right user switcher.
+
+---
+
+## What the product does
+
+An invoice arrives — as a PDF in someone's inbox, a line in a spreadsheet export,
+or a subscription that renews whether anyone is watching. Before money can leave
+the company, four things have to happen to it: it has to be **captured** as a
+payable record, **coded** so the spend lands in the right general-ledger accounts
+and departments, **approved** by the right people in the right order (the person
+who enters a bill must not be the person who releases the money), and **paid** on
+time without being paid twice.
+
+Bill Pay is the system of record for that sequence. A **Bill** is the payable
+record; an **Invoice** is the document attached to it — the glossary keeps those
+apart deliberately, because conflating them is where AP tools lose track of what
+is authoritative. The bill carries the amount owed, its line items carry the
+accounting treatment, an approval chain carries the control, and a **Payment** —
+a separate entity with its own lifecycle — carries the money movement.
+
+Underneath all of it is an audit trail: every mutation appends an activity entry
+attributed to whoever made it, so "who approved this, and when" has an answer
+that does not depend on memory. That is what makes this a business process rather
+than a CRUD app, and why the approval layer was never negotiable.
+
+## Workflows I prioritized
+
+The spine is the **core AP loop**: intake → GL coding → multi-step approval →
+payment → audit trail. It was the spine because it is the only path that has to
+be complete to be worth anything — a product that captures bills beautifully and
+cannot get one approved has demonstrated nothing about payables. The loop was
+built end to end first, narrow (one currency, one payment per bill), then
+widened.
+
+Mid-build the scope changed. The reviewer asked for **invoice OCR, CSV import,
+line-item splits and recurring bills** — four features
+[ADR 0005](docs/decisions/0005-deferred-features-are-additive.md) had explicitly
+deferred behind schema seams — and offered to drop GL coding and approval in
+exchange. The budget did not grow, so the **AP aging report** and **inbox bulk
+actions** were cut to pay for them
+([ADR 0008](docs/decisions/0008-scope-pivot-ingestion-over-reporting.md)).
+
+Both features offered as the trade were kept, deliberately. A split *is* the
+distribution of a line across GL accounts and dimensions, so removing the coding
+layer would have broken one of the four requested features. And approval had
+already been built in the foundation phase, so keeping it cost far less than the
+estimate that justified cutting it. Reading the request charitably produced a
+more coherent product than taking it literally.
+
+What that leaves, as shipped:
+
+| Surface | What it does |
+| --- | --- |
+| **Bills inbox** | Workflow tabs (Drafts / Awaiting approval / Approved / Rejected / History / All) with filters and sorting driven entirely by URL params — the list stays a Server Component and every view is a shareable link |
+| **Bill detail** | Invoice document beside the coding surface: line items, GL accounts, per-line splits with allocation templates, approval chain, payment panel, activity feed with comments |
+| **Intake** | Manual creation, invoice upload with OCR review, CSV import with per-row validation, recurring templates that generate already-coded drafts |
+| **Dashboard** | Outstanding payables, the current user's approval queue, drafts blocked on missing info, upcoming payments, and a compact aging distribution |
+| **Vendors** | Suppliers ordered by whether they can actually be paid, with the reason a rail is blocked |
+
+## What I left out, and why
+
+Each was designed to return as a **purely additive** migration — a new table or a
+nullable column, never a rewrite
+([ADR 0005](docs/decisions/0005-deferred-features-are-additive.md),
+[ARCHITECTURE §3](docs/ARCHITECTURE.md)). That claim is not theoretical: four of
+the originally deferred features were cashed in mid-build and cost one sequential
+migration pass.
+
+- **AP aging report** — cut to pay for ingestion. Pure reporting over data that
+  already exists; `agingBucket()` is implemented and tested, and a compact aging
+  distribution survives on the dashboard.
+- **Inbox bulk actions** — cut in the same trade. Approving twenty bills at once
+  is throughput, and throughput is worth less than correctness here.
+- **Partial payments** — `Bill → Payment` is already 1:N with its own
+  `amountCents`; the "one payment, full amount" rule lives in the server action,
+  not the schema, so removing it needs no migration.
+- **Multi-currency** — `Bill.currency` is written on every row and `money.ts`
+  already keys minor-unit precision off it. FX is two nullable columns and a rate
+  table, and it is a reporting concern rather than an AP one.
+- **AP email forwarding** — needs an inbound mail rail, not a schema change.
+  `BillSource.EMAIL` exists and would write through the same path as OCR and CSV.
+- **Duplicate detection** — `@@unique([vendorId, billNumber])` blocks the exact
+  case; fuzzy matching needs review UX to be useful rather than annoying.
+- **1099 tracking** — `Vendor.is1099` and `Vendor.taxId` are on the schema. The
+  report is a year-end aggregation, outside the loop.
+- **Accounting-system sync** — depends on an external contract we do not have.
+  `GlAccount.code` is already the external chart-of-accounts code.
+- **Real payment rails** — no ACH file, no check printing. The payment lifecycle
+  is modelled and enforced; only the rail is simulated.
+- **Authentication** — a demo user switcher instead
+  ([ADR 0006](docs/decisions/0006-demo-user-switcher-instead-of-auth.md)). Real
+  auth demonstrates nothing about payables and makes a multi-role chain *slower*
+  to show.
+
+## Setup
 
 ```bash
 docker compose up --build
@@ -14,72 +109,135 @@ That is the whole setup. It starts Postgres 16, waits for it to be healthy,
 applies the migrations, seeds the demo data and serves the app on
 **http://localhost:3000**.
 
-Re-running `docker compose up` keeps whatever you did in the UI — the seed only
-runs when the database is empty. To start over:
+Re-running keeps whatever you did in the UI — the seed only runs when the
+database is empty. To start clean: `docker compose down -v && docker compose up
+--build`.
+
+### Local development
 
 ```bash
-docker compose down -v && docker compose up --build
-```
-
-## Local development
-
-```bash
+nvm use                       # Node 22, per .nvmrc
 cp .env.example .env
 docker compose up -d db       # Postgres only
 pnpm install
-pnpm db:migrate               # create + apply migrations
-pnpm db:seed                  # load the demo data
+pnpm db:migrate
+pnpm db:seed
 pnpm dev                      # http://localhost:3000
 ```
 
-Requires Node 20+ and pnpm 10 (npm works too).
+`pnpm test` runs the domain suite — **138 tests** over the pure core, no database
+and no DOM. `pnpm lint` and `pnpm typecheck` are the other two gates.
 
-### Useful scripts
+### Optional: `GEMINI_API_KEY`
 
-| Command | Does |
-| --- | --- |
-| `pnpm dev` | Development server |
-| `pnpm build` | `prisma generate` + production build |
-| `pnpm lint` / `pnpm typecheck` | ESLint / `tsc --noEmit` |
-| `pnpm db:migrate` / `pnpm db:deploy` | Create+apply / apply migrations |
-| `pnpm db:seed` | Reseed (destructive — truncates and rebuilds) |
-| `pnpm db:reset` | Drop, re-migrate and reseed |
-| `pnpm db:studio` | Prisma Studio |
-| `pnpm invoices:generate` | Re-render the placeholder invoice PDFs |
+Set it (from [AI Studio](https://aistudio.google.com/apikey)) and uploaded
+invoices are read by Gemini. Leave it unset and OCR falls back to a deterministic
+built-in extractor — the upload flow, the review panel and the resulting draft
+all behave identically. Nothing breaks without a key; that is deliberate
+([ADR 0010](docs/decisions/0010-ocr-extraction-requires-human-review.md)).
 
-## Demoing it
+### Demoing the approval chain
 
-There is no login. The top-right **user switcher** picks who you are acting as —
-that is how you walk a bill through a two-step approval chain on your own.
+There is no login. The **user switcher** in the top bar picks who you are acting
+as, which is how one person walks a bill through a two-step chain:
 
 | User | Title | Role |
 | --- | --- | --- |
 | Maya Chen | AP Clerk | Member *(default)* |
 | Daniel Okafor | Controller | Approver |
 | Priya Raman | Chief Financial Officer | Approver |
-| Alex Whitfield | Head of Operations | Approver |
-| Sofia Delgado | Workplace Manager | Member |
-| Tom Bergstrom | IT & Systems Admin | Admin |
 
-Approval policies: under $1,000 auto-approves, $1,000+ needs the Controller,
-$10,000+ needs the Controller and then the CFO.
+Policies: under $1,000 auto-approves, $1,000+ needs the Controller, $10,000+
+needs the Controller and then the CFO. Submit a $12k bill as Maya, approve as
+Daniel, approve as Priya, then schedule the payment — the activity feed shows the
+correct actor at every step.
 
-The seed loads 45 bills across every status, with drafts that are deliberately
-incomplete, payments in all four payment states, and outstanding balances in
-every AP aging bucket.
+The seed loads 46 bills across every status: four drafts blocked for four
+different reasons, bills at different points in their approval chains, payments
+in all four payment states, and one vendor (`Bellweather Design Studio`) with no
+bank details, so the payment refusal is reachable rather than merely correct.
+
+## Key architecture and data-model decisions
+
+**Bill and Payment are separate entities with independent lifecycles.** There is
+deliberately no `SCHEDULED` bill status — a scheduled payment is an `APPROVED`
+bill that owns a `Payment` in status `SCHEDULED`. Approving a bill and moving
+money are two processes with different owners and different failure modes, and
+collapsing them makes partial payments a destructive migration later.
+[ADR 0002](docs/decisions/0002-bill-and-payment-are-separate-entities.md)
+
+**The bill total is authoritative; line items exist to code the spend.** We never
+derive the total from the sum of lines. We validate that they reconcile, and when
+they do not, the draft is `Missing info` and cannot be submitted. This is the
+whole reason OCR slots in without a redesign: an extraction that reads the total
+but only partially itemises produces exactly the right prompt for human review
+instead of silently changing what is owed to the vendor.
+[ADR 0004](docs/decisions/0004-bill-total-is-authoritative.md)
+
+**Approval chains are snapshotted at submit time.** A bill matches the first
+applicable amount-threshold policy by priority and receives a *copy* of its
+ordered approvers as `ApprovalStep` rows, so editing a policy does not
+retroactively rewrite bills already in flight. Enforcement is server-side: every
+status write goes through `assertTransition(from, to)` in
+`src/lib/bill-status.ts`, and authorization is checked against the current user in
+the action. The UI hiding a button is a courtesy, not the control.
+[ADR 0003](docs/decisions/0003-sequential-multi-step-approval-policies.md)
+
+**Money is integer minor units everywhere** — database, form state, component
+props. No floats. Splits distribute by **basis points** (1% = 100) using
+largest-remainder, so a three-way split of $100 is 33.34 / 33.33 / 33.33 rather
+than three amounts that quietly lose a cent. The seed splits amounts that do not
+divide evenly, so the distribution is visible in the demo and not only in a test.
+
+**Functional core, imperative shell — not ports and adapters.** Everything in
+`src/lib/` is pure domain logic and may not import Prisma, React or `next/*`;
+Server Actions are the shell that loads, calls the core, persists and
+revalidates. Hexagonal was the earlier plan and was dropped: the testability it
+promises comes almost entirely from having a pure core, ports additionally buy a
+database swap that will never happen, and Server Actions have no DI container, so
+ports would mean hand-threading dependencies through every action.
+`src/server/schema-parity.ts` pins the core's string-literal enums to Prisma's
+generated types with type-level assertions, so the two cannot drift silently.
+[ADR 0009](docs/decisions/0009-functional-core-over-hexagonal-ports.md)
+
+**OCR produces a draft for human review, never a finished bill.** The model is
+constrained to a JSON schema rather than prompted for prose, the raw response is
+persisted as an `OcrExtraction` sibling row so a run is auditable and
+re-reviewable, and the extracted bill lands as a `DRAFT` — usually `Missing
+info`, because extracted lines rarely reconcile to the extracted total.
+Auto-applying an extraction would push a read error into the ledger and then into
+a payment, the one class of bug this product must not have.
+[ADR 0010](docs/decisions/0010-ocr-extraction-requires-human-review.md)
+
+**A demo user switcher instead of auth.** The identity is fake; the enforcement
+is real. A user who is not the current approver on a bill cannot approve it
+regardless of what the UI offers, so swapping the cookie for a session is a
+one-function change in `getCurrentUser()`.
+[ADR 0006](docs/decisions/0006-demo-user-switcher-instead-of-auth.md)
+
+## Honest status
+
+OCR is proven against the deterministic mock path — what runs with no API key,
+and what the seeded extraction demonstrates. The live Gemini path is implemented
+(schema-constrained request, model cascade, timeout and error handling) but has
+not yet been exercised against the real API. If you set a key and it misbehaves,
+the fallback still produces a reviewable draft.
+
+The test suite covers the pure core only. No end-to-end or component tests:
+inside this budget they cost more than they prove, and the logic worth protecting
+is all in `src/lib/`.
 
 ## Documentation
 
-- [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — the authoritative domain vocabulary.
-  A *Bill* is the payable record; an *Invoice* is the attached document. Bills
-  are *Awaiting approval*, never "pending", and *Archived*, never "deleted".
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — data model, the bill state
-  machine, why the roadmap features are additive migrations, the shared library
-  surface and the file ownership map.
+[`docs/GLOSSARY.md`](docs/GLOSSARY.md) is the authoritative domain vocabulary.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the data model, the state
+machines and the seed data. [`docs/decisions/`](docs/decisions/) holds ten ADRs,
+including the mid-build pivot, and
+[`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) records how the
+build was sequenced.
 
 ## Stack
 
 Next.js 15 (App Router, React Server Components, Server Actions) · TypeScript ·
-Tailwind CSS v4 · shadcn/ui · Prisma · PostgreSQL 16 · Docker Compose.
-
-Money is always an integer number of cents. Never a float.
+Tailwind CSS v4 · shadcn/ui · Prisma · PostgreSQL 16 · Vitest · Docker Compose ·
+deployed on Railway running the same container as local development.
