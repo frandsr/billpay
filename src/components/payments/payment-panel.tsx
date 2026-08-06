@@ -1,5 +1,5 @@
 import type { User } from "@prisma/client";
-import { Banknote, CircleAlert, Info, Landmark } from "lucide-react";
+import { Banknote, CircleAlert, Info, Landmark, Lock } from "lucide-react";
 
 import {
   PaymentExecutionActions,
@@ -11,7 +11,8 @@ import {
   PAYMENT_METHOD_LABELS,
   isPaymentSettled,
   missingVendorPaymentDetails,
-} from "@/components/payments/payment-lifecycle";
+} from "@/lib/payment-lifecycle";
+import { refusePaymentExecution } from "@/lib/permissions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -60,6 +61,15 @@ export function PaymentPanel({ bill, currentUser }: PaymentPanelProps) {
   );
 
   const canSchedule = bill.status === "APPROVED" && livePayment === null;
+
+  // Who may move money. The same predicate the server actions enforce, so the
+  // panel cannot offer a control the server will refuse.
+  const paymentRefusal = refusePaymentExecution(currentUser.role);
+  const mayPay = paymentRefusal === null;
+  /** True when there is payment work on offer that the role question gates. */
+  const paymentWorkIsAvailable =
+    canSchedule ||
+    (livePayment !== null && !isPaymentSettled(livePayment.status));
 
   const methodOptions: PaymentMethodOption[] = PAYMENT_METHODS.map((method) => ({
     method,
@@ -120,7 +130,7 @@ export function PaymentPanel({ bill, currentUser }: PaymentPanelProps) {
           <PaymentRecord payment={livePayment} currency={bill.currency} />
         ) : null}
 
-        {livePayment && !isPaymentSettled(livePayment.status) ? (
+        {livePayment && !isPaymentSettled(livePayment.status) && mayPay ? (
           <div className="space-y-2">
             <PaymentExecutionActions
               paymentId={livePayment.id}
@@ -134,6 +144,17 @@ export function PaymentPanel({ bill, currentUser }: PaymentPanelProps) {
           </div>
         ) : null}
 
+        {/* Segregation of duties. The server refuses these writes for a member
+            regardless of what renders here — this only keeps the UI honest
+            about it instead of offering a button that will be rejected. */}
+        {paymentRefusal && paymentWorkIsAvailable ? (
+          <Alert>
+            <Lock />
+            <AlertTitle>Payment needs an approver</AlertTitle>
+            <AlertDescription>{paymentRefusal.message}</AlertDescription>
+          </Alert>
+        ) : null}
+
         {livePayment?.status === "PAID" ? (
           <p className="text-muted-foreground text-sm">
             Settled in full on{" "}
@@ -144,7 +165,7 @@ export function PaymentPanel({ bill, currentUser }: PaymentPanelProps) {
           </p>
         ) : null}
 
-        {canSchedule ? (
+        {canSchedule && mayPay ? (
           everyMethodBlocked ? (
             <Alert variant="destructive">
               <CircleAlert />

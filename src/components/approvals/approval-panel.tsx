@@ -19,7 +19,8 @@ import {
   APPROVAL_STEP_STATUS_LABELS,
   canDecideCurrentStep,
   currentPendingStep,
-} from "@/components/approvals/approval-chain";
+} from "@/lib/approval-chain";
+import { refuseBillReopen } from "@/lib/permissions";
 import { getApprovalPreview } from "@/components/approvals/approval-preview";
 import { UserAvatar } from "@/components/shell/user-avatar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -67,6 +68,13 @@ export async function ApprovalPanel({ bill, currentUser }: ApprovalPanelProps) {
   const current = currentPendingStep(steps);
   const isMyTurn = canDecideCurrentStep(bill.status, steps, currentUser.id);
   const rejectedStep = steps.find((step) => step.status === "REJECTED") ?? null;
+  // Same predicate `returnBillToDraft` enforces, so the button is offered only
+  // to someone the server will actually let through.
+  const reopenRefusal = refuseBillReopen({
+    role: currentUser.role,
+    userId: currentUser.id,
+    billCreatedById: bill.createdById,
+  });
 
   // Only a draft needs to know where it WOULD go; every other status is already
   // governed by the chain snapshotted on the bill.
@@ -190,11 +198,21 @@ export async function ApprovalPanel({ bill, currentUser }: ApprovalPanelProps) {
                   : "No reason was recorded."}
               </AlertDescription>
             </Alert>
-            <p className="text-muted-foreground text-sm">
-              Send it back to draft to correct it. Re-submitting rebuilds the
-              chain from the policies as they stand then.
-            </p>
-            <ReopenBillButton billId={bill.id} />
+            {reopenRefusal ? (
+              // The rejection is addressed to whoever raised the bill, so only
+              // they or an admin can act on it. The server enforces this too.
+              <p className="text-muted-foreground text-sm">
+                {reopenRefusal.message}
+              </p>
+            ) : (
+              <>
+                <p className="text-muted-foreground text-sm">
+                  Send it back to draft to correct it. Re-submitting rebuilds the
+                  chain from the policies as they stand then.
+                </p>
+                <ReopenBillButton billId={bill.id} />
+              </>
+            )}
           </div>
         ) : null}
 
@@ -371,16 +389,18 @@ function DraftRouting({
         </Alert>
       ) : null}
 
+      {/* The bill header above enumerates exactly what is missing, so this says
+          only that submission is blocked and how many things block it. Listing
+          the same issues twice on one page reads as two checklists that could
+          disagree. */}
       {ready ? null : (
         <Alert variant="destructive">
           <TriangleAlert />
           <AlertTitle>Missing info — this draft cannot be submitted</AlertTitle>
           <AlertDescription>
-            <ul className="list-disc space-y-0.5 pl-4">
-              {readiness.issues.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
+            {readiness.issues.length === 1
+              ? "One field still needs attention — see the checklist on the bill header above."
+              : `${readiness.issues.length} fields still need attention — see the checklist on the bill header above.`}
           </AlertDescription>
         </Alert>
       )}

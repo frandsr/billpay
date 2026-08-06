@@ -2,15 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import {
-  InvalidPaymentTransitionError,
-  PAYMENT_METHOD_LABELS,
-  assertPaymentTransition,
-  isPaymentSettled,
-  missingVendorPaymentDetails,
-  paymentReference,
-  type ActionResult,
-} from "@/components/payments/payment-lifecycle";
+import type { ActionResult } from "@/lib/action-result";
 import {
   BILL_STATUS_META,
   InvalidBillTransitionError,
@@ -19,8 +11,17 @@ import {
 import { getCurrentUser } from "@/lib/current-user";
 import { formatDate, fromDateInputValue, todayUtc } from "@/lib/dates";
 import { db } from "@/lib/db";
-import { PAYMENT_METHODS, type PaymentMethod } from "@/lib/domain";
+import { PAYMENT_METHODS, type PaymentMethod, type UserRole } from "@/lib/domain";
 import { formatCents } from "@/lib/money";
+import {
+  InvalidPaymentTransitionError,
+  PAYMENT_METHOD_LABELS,
+  assertPaymentTransition,
+  isPaymentSettled,
+  missingVendorPaymentDetails,
+  paymentReference,
+} from "@/lib/payment-lifecycle";
+import { refusePaymentExecution } from "@/lib/permissions";
 
 /**
  * Payment server actions — money movement, simulated but modelled honestly.
@@ -65,6 +66,19 @@ function isPaymentMethod(value: string): value is PaymentMethod {
   return (PAYMENT_METHODS as readonly string[]).includes(value);
 }
 
+/**
+ * Segregation of duties: moving money needs an elevated role.
+ *
+ * Every payment write starts here, because scheduling, initiating, completing
+ * and failing are one privilege split across time — a user who may not schedule
+ * a payment has no business marking one paid either. The panel hides these
+ * controls from a member; this is what actually enforces it.
+ */
+function refuseUnlessPayer(role: UserRole): ActionResult | null {
+  const refusal = refusePaymentExecution(role);
+  return refusal ? fail(refusal.message) : null;
+}
+
 // ---------------------------------------------------------------------------
 // Schedule
 // ---------------------------------------------------------------------------
@@ -84,6 +98,9 @@ export async function schedulePayment(
   scheduledDate: string,
 ): Promise<ActionResult> {
   const user = await getCurrentUser();
+
+  const denied = refuseUnlessPayer(user.role);
+  if (denied) return denied;
 
   if (!isPaymentMethod(method)) {
     return fail("Pick a payment method.");
@@ -175,6 +192,9 @@ export async function schedulePayment(
 export async function initiatePayment(paymentId: string): Promise<ActionResult> {
   const user = await getCurrentUser();
 
+  const denied = refuseUnlessPayer(user.role);
+  if (denied) return denied;
+
   const payment = await db.payment.findUnique({
     where: { id: paymentId },
     include: { bill: true },
@@ -222,6 +242,9 @@ export async function initiatePayment(paymentId: string): Promise<ActionResult> 
  */
 export async function completePayment(paymentId: string): Promise<ActionResult> {
   const user = await getCurrentUser();
+
+  const denied = refuseUnlessPayer(user.role);
+  if (denied) return denied;
 
   const payment = await db.payment.findUnique({
     where: { id: paymentId },
@@ -297,6 +320,9 @@ export async function failPayment(
   reason: string,
 ): Promise<ActionResult> {
   const user = await getCurrentUser();
+
+  const denied = refuseUnlessPayer(user.role);
+  if (denied) return denied;
 
   const trimmedReason = reason?.trim() ?? "";
   if (trimmedReason.length === 0) {

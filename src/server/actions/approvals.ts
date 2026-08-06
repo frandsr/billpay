@@ -2,10 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import {
-  refuseDecision,
-  type ActionResult,
-} from "@/components/approvals/approval-chain";
+import type { ActionResult } from "@/lib/action-result";
+import { refuseDecision } from "@/lib/approval-chain";
 import { resolveApprovalPolicy } from "@/lib/approval-policy";
 import {
   BILL_STATUS_META,
@@ -15,6 +13,7 @@ import {
 } from "@/lib/bill-status";
 import { getCurrentUser } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { refuseBillReopen } from "@/lib/permissions";
 
 /**
  * Approval server actions — the only way a bill's approval state changes.
@@ -419,6 +418,16 @@ export async function returnBillToDraft(billId: string): Promise<ActionResult> {
 
   const bill = await db.bill.findUnique({ where: { id: billId } });
   if (!bill) return fail("That bill no longer exists.");
+
+  // Segregation of duties: a rejection is addressed to whoever raised the bill,
+  // so only they (or an admin) get to act on it. Checked against the stored
+  // `createdById`, never against anything the client sent.
+  const refusal = refuseBillReopen({
+    role: user.role,
+    userId: user.id,
+    billCreatedById: bill.createdById,
+  });
+  if (refusal) return fail(refusal.message);
 
   try {
     assertTransition(bill.status, "DRAFT");
